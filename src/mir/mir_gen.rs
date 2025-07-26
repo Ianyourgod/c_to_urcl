@@ -1,0 +1,331 @@
+use std::collections::HashMap;
+use std::rc::Rc;
+
+use crate::mir::mir_def;
+use crate::ast;
+
+#[derive(Debug, Clone)]
+pub struct Generator {
+    tmp_count: u32
+}
+
+impl Generator {
+    pub fn new() -> Self {
+        Self {
+            tmp_count: 0
+        }
+    }
+
+    pub fn generate(&mut self, ast: ast::Program) -> mir_def::Program {
+        mir_def::Program { 
+            functions: 
+                ast.functions.into_iter().map(|f| self.generate_function(f)).collect()
+        }
+    }
+
+    fn generate_function(&mut self, function: ast::FunctionDecl) -> mir_def::Function {
+        let fn_gen = FunctionGenerator::new(self);
+
+        fn_gen.generate(function)
+    }
+}
+
+struct FunctionGenerator<'l> {
+    generator: &'l mut Generator,
+    cfg: mir_def::CFG,
+    current_block: mir_def::GenericBlock,
+}
+
+impl<'l> FunctionGenerator<'l> {
+    pub fn new(generator: &'l mut Generator) -> Self {
+        let mut cfg = mir_def::CFG {
+            blocks: HashMap::new()
+        };
+
+        generator.tmp_count += 1;
+        let n = generator.tmp_count;
+
+        cfg.blocks.insert(mir_def::BlockID::Start, mir_def::BasicBlock::Start { successors: vec![mir_def::BlockID::Generic(n)] });
+        cfg.blocks.insert(mir_def::BlockID::End, mir_def::BasicBlock::End);
+
+        Self {
+            generator,
+            cfg,
+            current_block: Self::temp_block_ns(n)
+        }
+    }
+
+    fn temp_block_ns(id: mir_def::GenericBlockID) -> mir_def::GenericBlock {
+        mir_def::GenericBlock {
+            id,
+            instructions: Vec::new(),
+            terminator: mir_def::Terminator::Return(mir_def::Val::Num(0))
+        }
+    }
+
+    pub fn generate(mut self, function: ast::FunctionDecl) -> mir_def::Function {
+        self.generate_block(function.block);
+        
+        mir_def::Function { name: Rc::new(function.name), basic_blocks: self.cfg }
+    }
+
+    fn generate_block(&mut self, block: ast::Block) {
+        for stmt in block.statements {
+            self.generate_statement(stmt);
+        }
+    }
+
+    fn generate_statement(&mut self, stmt: ast::Statement) {
+        match stmt {
+            ast::Statement::Return(expr) => {
+                self.current_block.terminator = mir_def::Terminator::Return(self.generate_expr(expr));
+                self.new_block();
+            }
+        }
+    }
+
+    fn new_block(&mut self) {
+        let id_n = self.gen_block_id();
+        self.new_block_w_id(id_n);
+    }
+
+    fn new_block_w_id(&mut self, id: mir_def::GenericBlockID) {
+        let block = std::mem::replace(
+            &mut self.current_block,
+            Self::temp_block_ns(id)
+        );
+
+        self.cfg.blocks.insert(
+            mir_def::BlockID::Generic(block.id),
+            mir_def::BasicBlock::Generic(block)
+        );
+    }
+
+    fn gen_tmp_name(&mut self) -> mir_def::Ident {
+        self.generator.tmp_count += 1;
+        Rc::new(format!("tmp.{}.", self.generator.tmp_count))
+    }
+
+    fn gen_block_id(&mut self) -> mir_def::GenericBlockID {
+        self.generator.tmp_count += 1;
+        self.generator.tmp_count
+    }
+
+    fn generate_expr(&mut self, expr: ast::Expr) -> mir_def::Val {
+        match expr {
+            ast::Expr::Number(n) => mir_def::Val::Num(n),
+            ast::Expr::Binary(ast::BinOp::And, box (left, right)) => {
+                let false_id = self.gen_block_id();
+                let first_true_id = self.gen_block_id();
+                let true_id = self.gen_block_id();
+
+                let left = self.generate_expr(left);
+
+                let res = self.gen_tmp_name();
+
+                self.current_block.instructions.push(mir_def::Instruction::Copy { src: mir_def::Val::Num(0), dst: res.clone() });
+
+                self.current_block.terminator = mir_def::Terminator::JumpCond {
+                    target: first_true_id,
+                    fail: false_id,
+                    src1: left,
+                    src2: mir_def::Val::Num(0),
+                    cond: mir_def::Cond::NotEqual
+                };
+
+                self.new_block_w_id(first_true_id);
+
+                let right = self.generate_expr(right);
+
+                self.current_block.terminator = mir_def::Terminator::JumpCond {
+                    target: true_id,
+                    fail: false_id,
+                    src1: right,
+                    src2: mir_def::Val::Num(0),
+                    cond: mir_def::Cond::NotEqual
+                };
+
+                self.new_block_w_id(true_id);
+
+                self.current_block.instructions.push(mir_def::Instruction::Copy { src: mir_def::Val::Num(1), dst: res.clone() });
+
+                self.current_block.terminator = mir_def::Terminator::Jump { target: false_id };
+
+                self.new_block_w_id(false_id);
+
+                mir_def::Val::Var(res)
+            },
+            ast::Expr::Binary(ast::BinOp::Or, box (left, right)) => {
+                let false_id = self.gen_block_id();
+                let first_false_id = self.gen_block_id();
+                let true_id = self.gen_block_id();
+
+                let left = self.generate_expr(left);
+
+                let res = self.gen_tmp_name();
+
+                self.current_block.instructions.push(mir_def::Instruction::Copy { src: mir_def::Val::Num(1), dst: res.clone() });
+
+                self.current_block.terminator = mir_def::Terminator::JumpCond {
+                    target: first_false_id,
+                    fail: true_id,
+                    src1: left,
+                    src2: mir_def::Val::Num(0),
+                    cond: mir_def::Cond::Equal
+                };
+
+                self.new_block_w_id(first_false_id);
+
+                let right = self.generate_expr(right);
+
+                self.current_block.terminator = mir_def::Terminator::JumpCond {
+                    target: false_id,
+                    fail: true_id,
+                    src1: right,
+                    src2: mir_def::Val::Num(0),
+                    cond: mir_def::Cond::Equal
+                };
+
+                self.new_block_w_id(false_id);
+
+                self.current_block.instructions.push(mir_def::Instruction::Copy { src: mir_def::Val::Num(0), dst: res.clone() });
+
+                self.current_block.terminator = mir_def::Terminator::Jump { target: true_id };
+
+                self.new_block_w_id(true_id);
+
+                mir_def::Val::Var(res)
+            },
+            ast::Expr::Binary(op @ (
+                ast::BinOp::Equal | ast::BinOp::NotEqual |
+                ast::BinOp::LessThan | ast::BinOp::GreaterThanEqual |
+                ast::BinOp::GreaterThan | ast::BinOp::LessThanEqual 
+            ), box (left, right)) => {
+                let op = match op {
+                    ast::BinOp::Equal => mir_def::Cond::Equal,
+                    ast::BinOp::NotEqual => mir_def::Cond::NotEqual,
+                    ast::BinOp::LessThan => mir_def::Cond::LessThan,
+                    ast::BinOp::LessThanEqual => mir_def::Cond::LessThanEqual,
+                    ast::BinOp::GreaterThan => mir_def::Cond::GreaterThan,
+                    ast::BinOp::GreaterThanEqual => mir_def::Cond::GreaterThanEqual,
+
+                    _ => unreachable!()
+                };
+
+                let tmp = self.gen_tmp_name();
+
+                let left = self.generate_expr(left);
+                let right = self.generate_expr(right);
+
+                self.current_block.instructions.push(mir_def::Instruction::Copy {
+                    src: mir_def::Val::Num(1),
+                    dst: tmp.clone()
+                });
+
+                let true_id = self.gen_block_id();
+                let false_id = self.gen_block_id();
+
+                self.current_block.terminator = mir_def::Terminator::JumpCond {
+                    target: true_id,
+                    fail: false_id,
+                    src1: left,
+                    src2: right,
+                    cond: op
+                };
+
+                self.new_block_w_id(false_id);
+
+                self.current_block.instructions.push(mir_def::Instruction::Copy {
+                    src: mir_def::Val::Num(0),
+                    dst: tmp.clone()
+                });
+
+                self.current_block.terminator = mir_def::Terminator::Jump { target: true_id };
+
+                self.new_block_w_id(true_id);
+
+                mir_def::Val::Var(tmp)
+            },
+            ast::Expr::Binary(op, box (left, right)) => {
+                let op = match op {
+                    ast::BinOp::Add => mir_def::Binop::Add,
+                    ast::BinOp::Sub => mir_def::Binop::Sub,
+                    ast::BinOp::Mul => mir_def::Binop::Mul,
+                    ast::BinOp::Div => mir_def::Binop::Div,
+                    ast::BinOp::BitwiseAnd => mir_def::Binop::BitwiseAnd,
+                    ast::BinOp::BitwiseXor => mir_def::Binop::BitwiseXor,
+                    ast::BinOp::BitwiseOr => mir_def::Binop::BitwiseOr,
+                    ast::BinOp::LeftShift => mir_def::Binop::LeftShift,
+                    ast::BinOp::RightShift => mir_def::Binop::RightShift,
+
+                    ast::BinOp::Equal | ast::BinOp::NotEqual |
+                    ast::BinOp::GreaterThan | ast::BinOp::LessThan |
+                    ast::BinOp::GreaterThanEqual | ast::BinOp::LessThanEqual |
+                    ast::BinOp::And | ast::BinOp::Or => unreachable!()
+                };
+
+                let left = self.generate_expr(left);
+                let right = self.generate_expr(right);
+
+                let tmp_name = self.gen_tmp_name();
+
+                self.current_block.instructions.push(mir_def::Instruction::Binary {
+                    op,
+                    src1: left,
+                    src2: right,
+                    dst: tmp_name.clone()
+                });
+
+                mir_def::Val::Var(tmp_name)
+            },
+            ast::Expr::Unary(ast::UnOp::Not, box inner) => {
+                let res = self.gen_tmp_name();
+
+                let inner = self.generate_expr(inner);
+
+                self.current_block.instructions.push(mir_def::Instruction::Copy { src: mir_def::Val::Num(0), dst: res.clone() });
+
+                let set_true = self.gen_block_id();
+                let f = self.gen_block_id();
+
+                self.current_block.terminator = mir_def::Terminator::JumpCond {
+                    target: set_true,
+                    fail: f,
+                    src1: inner,
+                    src2: mir_def::Val::Num(0),
+                    cond: mir_def::Cond::Equal
+                };
+
+                self.new_block_w_id(set_true);
+
+                self.current_block.instructions.push(mir_def::Instruction::Copy { src: mir_def::Val::Num(1), dst: res.clone() });
+
+                self.current_block.terminator = mir_def::Terminator::Jump { target: f };
+
+                self.new_block_w_id(f);
+
+                mir_def::Val::Var(res)
+            },
+            ast::Expr::Unary(unop, box inner) => {
+                let op = match unop {
+                    ast::UnOp::Complement => mir_def::Unop::Complement,
+                    ast::UnOp::Negate => mir_def::Unop::Negate,
+
+                    ast::UnOp::Not => unreachable!(),
+                };
+
+                let inner = self.generate_expr(inner);
+
+                let tmp_name = self.gen_tmp_name();
+
+                self.current_block.instructions.push(mir_def::Instruction::Unary {
+                    op,
+                    inner,
+                    dst: tmp_name.clone()
+                });
+
+                mir_def::Val::Var(tmp_name)
+            }
+        }
+    }
+}

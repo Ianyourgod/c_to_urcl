@@ -1,0 +1,92 @@
+use std::str::FromStr;
+use crate::ast::*;
+
+grammar;
+
+pub Program: Program = {
+    FunctionDecl* => Program::new(<>)
+};
+
+FunctionDecl: FunctionDecl = {
+    "int " <n:Ident> "()" <b:Block> => FunctionDecl::new(n,b)
+};
+
+Block: Block = {
+    "{" <s:Statement*> "}" => Block::new(s)
+}
+
+Statement: Statement = {
+    "return " <e:Expr> ";" => Statement::Return(e),
+};
+
+Expr: Expr = {
+    #[precedence(level="0")]
+    Term,
+    #[precedence(level="1")] #[assoc(side="left")]
+    <l:Expr> <o:BinOpMulDiv> <r:Expr> => Expr::Binary(o,Box::new((l,r))),
+    #[precedence(level="2")] #[assoc(side="left")]
+    <l:Expr> <o:BinOpAddSub> <r:Expr> => Expr::Binary(o,Box::new((l,r))),
+    #[precedence(level="3")] #[assoc(side="left")]
+    <l:Expr> <o:BinOpShifts> <r:Expr> => Expr::Binary(o,Box::new((l,r))),
+    #[precedence(level="4")] #[assoc(side="left")]
+    <l:Expr> <o:BinOpCmps> <r:Expr> => Expr::Binary(o,Box::new((l,r))),
+    #[precedence(level="5")] #[assoc(side="left")]
+    <l:Expr> <o:BinOpEqs> <r:Expr> => Expr::Binary(o,Box::new((l,r))),
+    #[precedence(level="6")] #[assoc(side="left")]
+    <l:Expr> "&" <r:Expr> => Expr::Binary(BinOp::BitwiseAnd,Box::new((l,r))),
+    #[precedence(level="7")] #[assoc(side="left")]
+    <l:Expr> "^" <r:Expr> => Expr::Binary(BinOp::BitwiseXor,Box::new((l,r))),
+    #[precedence(level="8")] #[assoc(side="left")]
+    <l:Expr> "|" <r:Expr> => Expr::Binary(BinOp::BitwiseOr,Box::new((l,r))),
+    #[precedence(level="9")] #[assoc(side="left")]
+    <l:Expr> "&&" <r:Expr> => Expr::Binary(BinOp::And,Box::new((l,r))),
+    #[precedence(level="10")] #[assoc(side="left")]
+    <l:Expr> "||" <r:Expr> => Expr::Binary(BinOp::Or,Box::new((l,r))),
+};
+
+BinOpMulDiv: BinOp = {
+    "*" => BinOp::Mul,
+    "/" => BinOp::Div,
+};
+
+BinOpAddSub: BinOp = {
+    "+" => BinOp::Add,
+    "-" => BinOp::Sub,
+};
+
+BinOpShifts: BinOp = {
+    "<<" => BinOp::LeftShift,
+    ">>" => BinOp::RightShift,
+};
+
+BinOpCmps: BinOp = {
+    "<" => BinOp::LessThan,
+    ">" => BinOp::GreaterThan,
+    "<=" => BinOp::LessThanEqual,
+    ">=" => BinOp::GreaterThanEqual,
+};
+
+BinOpEqs: BinOp = {
+    "==" => BinOp::Equal,
+    "!=" => BinOp::NotEqual
+};
+
+Term: Expr = {
+    "+"? <n:Num> => Expr::Number(n),
+    <o:UnOp> <t: Term> => Expr::Unary(o, Box::new(t)),
+    "(" <Expr> ")"
+};
+
+UnOp: UnOp = {
+    "-" => UnOp::Negate,
+    "~" => UnOp::Complement,
+    "!" => UnOp::Not
+};
+
+Num: i32 = {
+    r"[0-9]+" => i32::from_str(<>).unwrap()
+};
+
+Ident: String = {
+    r"[a-zA-Z][a-zA-Z0-9]*" => <>.to_string(),
+}

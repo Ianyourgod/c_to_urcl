@@ -1,3 +1,33 @@
+#![feature(box_patterns)]
+
+mod ast;
+mod mir;
+mod urcl_gen;
+
+use std::io::Write;
+
+use lalrpop_util::*;
+
+lalrpop_mod!(pub grammar);
+
 fn main() {
-    println!("Hello, world!");
+    let input_file = std::env::args().nth(1).unwrap();
+
+    let input = std::fs::read_to_string(input_file).unwrap();
+
+    let ast = grammar::ProgramParser::new().parse(&input).unwrap();
+
+    let mir = mir::generate_mir(ast);
+
+    println!("{:#?}", mir);
+
+    let asm = urcl_gen::mir_to_asm(mir);
+
+    write_to_file(&asm.to_string(), "output.urcl");
+}
+
+fn write_to_file(out: &str, file: &str) {
+    let mut file = std::fs::File::create(file).unwrap();
+
+    file.write_all(out.as_bytes()).unwrap();
 }
