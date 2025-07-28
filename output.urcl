@@ -1,36 +1,46 @@
-BITS == 8
-MINREG 8
-MINHEAP 16
+BITS == 16
+MINREG 26
+MINHEAP 4096
 RUN ROM
-MINSTACK 8
+MINSTACK 16
 
 CAL .main
 OUT %NUMB $1
 HLT
 .main
 	.lbl.1.
-	BSL $7 2 2
+	MOV $7 5
 	ADD $2 $2 1
 	STR $2 $7
 	ADD $2 $2 -1
 	ADD $2 $2 1
 	LOD $7 $2
 	ADD $2 $2 -1
-	SUB $7 $7 5
+	MOV $7 $7
 	ADD $2 $2 2
 	STR $2 $7
 	ADD $2 $2 -2
-	MLT $7 20 3
+	ADD $2 $2 2
+	LOD $7 $2
+	ADD $2 $2 -2
+	BSR $7 $7 1
 	ADD $2 $2 3
 	STR $2 $7
 	ADD $2 $2 -3
 	ADD $2 $2 3
 	LOD $7 $2
 	ADD $2 $2 -3
-	DIV $7 $7 20
+	ADD $7 $7 3
 	ADD $2 $2 4
 	STR $2 $7
 	ADD $2 $2 -4
+	ADD $2 $2 4
+	LOD $7 $2
+	ADD $2 $2 -4
+	MOV $7 $7
+	ADD $2 $2 2
+	STR $2 $7
+	ADD $2 $2 -2
 	MOV $7 1
 	ADD $2 $2 5
 	STR $2 $7
@@ -38,20 +48,20 @@ HLT
 	ADD $2 $2 2
 	LOD $7 $2
 	ADD $2 $2 -2
-	ADD $2 $2 4
+	ADD $2 $2 1
 	LOD $8 $2
-	ADD $2 $2 -4
-	BRE .lbl.7. $7 $8
-	JMP .lbl.8.
-	.lbl.7.
+	ADD $2 $2 -1
+	BRE .lbl.5. $7 $8
+	JMP .lbl.6.
+	.lbl.5.
 	ADD $2 $2 5
 	LOD $7 $2
 	ADD $2 $2 -5
 	MOV $1 $7
 	RET
-	.lbl.8.
+	.lbl.6.
 	MOV $7 0
 	ADD $2 $2 5
 	STR $2 $7
 	ADD $2 $2 -5
-	JMP .lbl.7.
+	JMP .lbl.5.

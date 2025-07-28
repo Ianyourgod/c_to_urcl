@@ -5,7 +5,7 @@ use crate::mir::mir_def;
 
 pub fn mir_to_asm(mir: mir_def::Program) -> asm::Program<asm::PVal> {
     asm::Program {
-        header_info: asm::HeaderInfo::default(),
+        header_info: asm::HeaderInfo::iris(),
         functions: mir.functions.into_iter().map(|func| {
             let mut instructions = Vec::new();
 
@@ -58,7 +58,8 @@ fn instr_to_asm(instr: mir_def::Instruction, instructions: &mut Vec<asm::Instr<a
                 mir_def::Binop::Add => asm::Binop::Add,
                 mir_def::Binop::Sub => asm::Binop::Sub,
                 mir_def::Binop::Mul => asm::Binop::Mul,
-                mir_def::Binop::Div => asm::Binop::Div,
+                mir_def::Binop::Div => asm::Binop::SDiv,
+                mir_def::Binop::Mod => asm::Binop::Mod,
                 mir_def::Binop::BitwiseAnd => asm::Binop::And,
                 mir_def::Binop::BitwiseOr => asm::Binop::Or,
                 mir_def::Binop::BitwiseXor => asm::Binop::Xor,

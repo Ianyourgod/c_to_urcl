@@ -66,12 +66,29 @@ impl<'l> FunctionGenerator<'l> {
     pub fn generate(mut self, function: ast::FunctionDecl) -> mir_def::Function {
         self.generate_block(function.block);
         
-        mir_def::Function { name: Rc::new(function.name), basic_blocks: self.cfg }
+        mir_def::Function { name: function.name, basic_blocks: self.cfg }
     }
 
     fn generate_block(&mut self, block: ast::Block) {
         for stmt in block.statements {
-            self.generate_statement(stmt);
+            match stmt {
+                ast::BlockItem::Declaration(decl) => {
+                    self.generate_var_decl(decl);
+                },
+                ast::BlockItem::Statement(stmt) => {
+                    self.generate_statement(stmt);
+                }
+            }
+        }
+    }
+
+    fn generate_var_decl(&mut self, decl: ast::VarDeclaration) {
+        if let Some(expr) = decl.expr {
+            let v = self.generate_expr(expr);
+            self.current_block.instructions.push(mir_def::Instruction::Copy {
+                src: v,
+                dst: decl.name
+            });
         }
     }
 
@@ -80,6 +97,9 @@ impl<'l> FunctionGenerator<'l> {
             ast::Statement::Return(expr) => {
                 self.current_block.terminator = mir_def::Terminator::Return(self.generate_expr(expr));
                 self.new_block();
+            },
+            ast::Statement::Expr(expr) => {
+                self.generate_expr(expr);
             }
         }
     }
@@ -114,6 +134,47 @@ impl<'l> FunctionGenerator<'l> {
     fn generate_expr(&mut self, expr: ast::Expr) -> mir_def::Val {
         match expr {
             ast::Expr::Number(n) => mir_def::Val::Num(n),
+            ast::Expr::Binary(ast::BinOp::Assign(ast::AssignType::Normal), box (var, val)) => {
+                let var_name = match var { ast::Expr::Var(v) => v, _ => unreachable!() };
+
+                let val = self.generate_expr(val);
+
+                self.current_block.instructions.push(mir_def::Instruction::Copy {
+                    src: val,
+                    dst: var_name.clone()
+                });
+
+                mir_def::Val::Var(var_name)
+            },
+            ast::Expr::Binary(ast::BinOp::Assign(assign_type), box (var, val)) => {
+                let var_name = match &var { ast::Expr::Var(v) => v.clone(), _ => unreachable!() };
+
+                let var_val = self.generate_expr(var);
+                let val = self.generate_expr(val);
+
+                self.current_block.instructions.push(mir_def::Instruction::Binary {
+                    op: match assign_type {
+                        ast::AssignType::Add => mir_def::Binop::Add,
+                        ast::AssignType::Sub => mir_def::Binop::Sub,
+                        ast::AssignType::Mul => mir_def::Binop::Mul,
+                        ast::AssignType::Div => mir_def::Binop::Div,
+                        ast::AssignType::Mod => mir_def::Binop::Mod,
+                        ast::AssignType::LeftShift => mir_def::Binop::LeftShift,
+                        ast::AssignType::RightShift => mir_def::Binop::RightShift,
+                        ast::AssignType::BitwiseAnd => mir_def::Binop::BitwiseAnd,
+                        ast::AssignType::BitwiseOr => mir_def::Binop::BitwiseOr,
+                        ast::AssignType::BitwiseXor => mir_def::Binop::BitwiseXor,
+
+                        ast::AssignType::Normal => unreachable!()
+                    },
+                    src1: var_val,
+                    src2: val,
+                    dst: var_name.clone()
+                });
+
+                mir_def::Val::Var(var_name)
+            },
+            ast::Expr::Var(v) => mir_def::Val::Var(v),
             ast::Expr::Binary(ast::BinOp::And, box (left, right)) => {
                 let false_id = self.gen_block_id();
                 let first_true_id = self.gen_block_id();
@@ -252,12 +313,14 @@ impl<'l> FunctionGenerator<'l> {
                     ast::BinOp::Sub => mir_def::Binop::Sub,
                     ast::BinOp::Mul => mir_def::Binop::Mul,
                     ast::BinOp::Div => mir_def::Binop::Div,
+                    ast::BinOp::Mod => mir_def::Binop::Mod,
                     ast::BinOp::BitwiseAnd => mir_def::Binop::BitwiseAnd,
                     ast::BinOp::BitwiseXor => mir_def::Binop::BitwiseXor,
                     ast::BinOp::BitwiseOr => mir_def::Binop::BitwiseOr,
                     ast::BinOp::LeftShift => mir_def::Binop::LeftShift,
                     ast::BinOp::RightShift => mir_def::Binop::RightShift,
 
+                    ast::BinOp::Assign(_) |
                     ast::BinOp::Equal | ast::BinOp::NotEqual |
                     ast::BinOp::GreaterThan | ast::BinOp::LessThan |
                     ast::BinOp::GreaterThanEqual | ast::BinOp::LessThanEqual |

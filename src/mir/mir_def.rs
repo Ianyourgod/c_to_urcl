@@ -112,6 +112,7 @@ pub enum Binop {
     Sub,
     Mul,
     Div,
+    Mod,
     BitwiseAnd,
     BitwiseOr,
     BitwiseXor,

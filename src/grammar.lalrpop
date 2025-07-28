@@ -1,4 +1,4 @@
-use std::str::FromStr;
+use std::{str::FromStr, rc::Rc};
 use crate::ast::*;
 
 grammar;
@@ -8,45 +8,63 @@ pub Program: Program = {
 };
 
 FunctionDecl: FunctionDecl = {
-    "int " <n:Ident> "()" <b:Block> => FunctionDecl::new(n,b)
+    Type <n:Ident> "()" <b:Block> => FunctionDecl::new(n,b)
 };
 
 Block: Block = {
-    "{" <s:Statement*> "}" => Block::new(s)
+    "{" <s:BlockItem*> "}" => Block::new(s)
+}
+
+BlockItem: BlockItem = {
+    Statement => BlockItem::Statement(<>),
+    VarDeclaration => BlockItem::Declaration(<>)
 }
 
 Statement: Statement = {
     "return " <e:Expr> ";" => Statement::Return(e),
+    <e:Expr> ";" => Statement::Expr(e),
 };
+
+VarDeclaration: VarDeclaration = {
+    Type <n:Ident> "=" <e:Expr> ";" => VarDeclaration::new(Rc::new(n), Some(e)),
+    Type <n:Ident> ";" => VarDeclaration::new(Rc::new(n), None),
+}
+
+Type: () = {
+    "int"
+}
 
 Expr: Expr = {
     #[precedence(level="0")]
     Term,
-    #[precedence(level="1")] #[assoc(side="left")]
-    <l:Expr> <o:BinOpMulDiv> <r:Expr> => Expr::Binary(o,Box::new((l,r))),
-    #[precedence(level="2")] #[assoc(side="left")]
-    <l:Expr> <o:BinOpAddSub> <r:Expr> => Expr::Binary(o,Box::new((l,r))),
     #[precedence(level="3")] #[assoc(side="left")]
-    <l:Expr> <o:BinOpShifts> <r:Expr> => Expr::Binary(o,Box::new((l,r))),
+    <l:Expr> <o:BinOpMulDivMod> <r:Expr> => Expr::Binary(o,Box::new((l,r))),
     #[precedence(level="4")] #[assoc(side="left")]
-    <l:Expr> <o:BinOpCmps> <r:Expr> => Expr::Binary(o,Box::new((l,r))),
+    <l:Expr> <o:BinOpAddSub> <r:Expr> => Expr::Binary(o,Box::new((l,r))),
     #[precedence(level="5")] #[assoc(side="left")]
-    <l:Expr> <o:BinOpEqs> <r:Expr> => Expr::Binary(o,Box::new((l,r))),
+    <l:Expr> <o:BinOpShifts> <r:Expr> => Expr::Binary(o,Box::new((l,r))),
     #[precedence(level="6")] #[assoc(side="left")]
-    <l:Expr> "&" <r:Expr> => Expr::Binary(BinOp::BitwiseAnd,Box::new((l,r))),
+    <l:Expr> <o:BinOpCmps> <r:Expr> => Expr::Binary(o,Box::new((l,r))),
     #[precedence(level="7")] #[assoc(side="left")]
-    <l:Expr> "^" <r:Expr> => Expr::Binary(BinOp::BitwiseXor,Box::new((l,r))),
+    <l:Expr> <o:BinOpEqs> <r:Expr> => Expr::Binary(o,Box::new((l,r))),
     #[precedence(level="8")] #[assoc(side="left")]
-    <l:Expr> "|" <r:Expr> => Expr::Binary(BinOp::BitwiseOr,Box::new((l,r))),
+    <l:Expr> "&" <r:Expr> => Expr::Binary(BinOp::BitwiseAnd,Box::new((l,r))),
     #[precedence(level="9")] #[assoc(side="left")]
-    <l:Expr> "&&" <r:Expr> => Expr::Binary(BinOp::And,Box::new((l,r))),
+    <l:Expr> "^" <r:Expr> => Expr::Binary(BinOp::BitwiseXor,Box::new((l,r))),
     #[precedence(level="10")] #[assoc(side="left")]
+    <l:Expr> "|" <r:Expr> => Expr::Binary(BinOp::BitwiseOr,Box::new((l,r))),
+    #[precedence(level="11")] #[assoc(side="left")]
+    <l:Expr> "&&" <r:Expr> => Expr::Binary(BinOp::And,Box::new((l,r))),
+    #[precedence(level="12")] #[assoc(side="left")]
     <l:Expr> "||" <r:Expr> => Expr::Binary(BinOp::Or,Box::new((l,r))),
+    #[precedence(level="14")] #[assoc(side="right")]
+    <l:Expr> <o:Assign> <r:Expr> => Expr::Binary(BinOp::Assign(o),Box::new((l,r)))
 };
 
-BinOpMulDiv: BinOp = {
+BinOpMulDivMod: BinOp = {
     "*" => BinOp::Mul,
     "/" => BinOp::Div,
+    "%" => BinOp::Mod,
 };
 
 BinOpAddSub: BinOp = {
@@ -71,10 +89,25 @@ BinOpEqs: BinOp = {
     "!=" => BinOp::NotEqual
 };
 
+Assign: AssignType = {
+    "=" => AssignType::Normal,
+    "+=" => AssignType::Add,
+    "-=" => AssignType::Sub,
+    "*=" => AssignType::Mul,
+    "/=" => AssignType::Div,
+    "%=" => AssignType::Mod,
+    "<<=" => AssignType::LeftShift,
+    ">>=" => AssignType::RightShift,
+    "&=" => AssignType::BitwiseAnd,
+    "|=" => AssignType::BitwiseOr,
+    "^=" => AssignType::BitwiseXor
+}
+
 Term: Expr = {
     "+"? <n:Num> => Expr::Number(n),
     <o:UnOp> <t: Term> => Expr::Unary(o, Box::new(t)),
-    "(" <Expr> ")"
+    "(" <Expr> ")",
+    Ident => Expr::Var(Rc::new(<>))
 };
 
 UnOp: UnOp = {

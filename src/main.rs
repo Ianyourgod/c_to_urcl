@@ -1,12 +1,15 @@
 #![feature(box_patterns)]
 
 mod ast;
+mod semantic_analysis;
 mod mir;
 mod urcl_gen;
 
-use std::io::Write;
+use std::{io::Write, rc::Rc};
 
 use lalrpop_util::*;
+
+pub type Ident = Rc<String>;
 
 lalrpop_mod!(pub grammar);
 
@@ -16,6 +19,8 @@ fn main() {
     let input = std::fs::read_to_string(input_file).unwrap();
 
     let ast = grammar::ProgramParser::new().parse(&input).unwrap();
+
+    let ast = semantic_analysis::analyse(ast);
 
     let mir = mir::generate_mir(ast);
 

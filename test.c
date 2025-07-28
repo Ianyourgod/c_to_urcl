@@ -1,3 +1,6 @@
 int main() {
-    return ((2 << 2) - 5) == (20 * 3 / 20);
+    int b;
+    int a = b = 5;
+    a = (a >> 1) + 3;
+    return a == b;
 }

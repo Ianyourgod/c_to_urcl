@@ -1,5 +1,9 @@
 #![allow(unused)]
 
+use std::rc::Rc;
+
+use crate::Ident;
+
 #[derive(Debug, Clone)]
 pub struct Program {
     pub functions: Vec<FunctionDecl>,
@@ -15,14 +19,14 @@ impl Program {
 
 #[derive(Debug, Clone)]
 pub struct FunctionDecl {
-    pub name: String,
+    pub name: Ident,
     pub block: Block,
 }
 
 impl FunctionDecl {
     pub fn new(name: String, block: Block) -> Self {
         Self {
-            name,
+            name: Rc::new(name),
             block
         }
     }
@@ -30,11 +34,11 @@ impl FunctionDecl {
 
 #[derive(Debug, Clone)]
 pub struct Block {
-    pub statements: Vec<Statement>
+    pub statements: Vec<BlockItem>
 }
 
 impl Block {
-    pub fn new(statements: Vec<Statement>) -> Self {
+    pub fn new(statements: Vec<BlockItem>) -> Self {
         Self {
             statements
         }
@@ -42,15 +46,35 @@ impl Block {
 }
 
 #[derive(Debug, Clone)]
+pub enum BlockItem {
+    Statement(Statement),
+    Declaration(VarDeclaration),
+}
+
+#[derive(Debug, Clone)]
 pub enum Statement {
-    Return(Expr)
+    Return(Expr),
+    Expr(Expr),
+}
+
+#[derive(Debug, Clone)]
+pub struct VarDeclaration {
+    pub name: Ident,
+    pub expr: Option<Expr>,
+}
+
+impl VarDeclaration {
+    pub fn new(name: Ident, expr: Option<Expr>) -> Self {
+        Self { name, expr }
+    }
 }
 
 #[derive(Debug, Clone)]
 pub enum Expr {
     Number(i32),
     Binary(BinOp, Box<(Expr, Expr)>),
-    Unary(UnOp, Box<Expr>)
+    Unary(UnOp, Box<Expr>),
+    Var(Ident),
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -60,12 +84,13 @@ pub enum UnOp {
     Not,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Copy)]
 pub enum BinOp {
     Add,
     Sub,
     Mul,
     Div,
+    Mod,
     And,
     Or,
     Equal,
@@ -79,4 +104,20 @@ pub enum BinOp {
     BitwiseXor,
     LeftShift,
     RightShift,
+    Assign(AssignType),
+}
+
+#[derive(Debug, Clone, Copy)]
+pub enum AssignType {
+    Normal,
+    Add,
+    Sub,
+    Mul,
+    Div,
+    Mod,
+    LeftShift,
+    RightShift,
+    BitwiseAnd,
+    BitwiseOr,
+    BitwiseXor
 }

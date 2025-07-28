@@ -125,7 +125,8 @@ pub enum Binop {
     Add,
     Sub,
     Mul,
-    Div,
+    SDiv,
+    Mod,
     And,
     Or,
     Xor,
@@ -156,7 +157,8 @@ impl Display for Binop {
             Binop::Add => "ADD",
             Binop::Sub => "SUB",
             Binop::Mul => "MLT",
-            Binop::Div => "DIV",
+            Binop::SDiv => "SDIV",
+            Binop::Mod => "MOD",
             Binop::And => "AND",
             Binop::Or => "OR",
             Binop::Xor => "XOR",
@@ -289,6 +291,16 @@ impl HeaderInfo {
             min_heap: 16,
             min_stack: 8,
             von_neumann: false
+        }
+    }
+
+    pub fn iris() -> Self {
+        Self {
+            bits: 16,
+            min_reg: 26,
+            min_heap: 4096,
+            min_stack: 16, // idk the stack size of iris... TODO! find the actual stack size
+            von_neumann: false // idk if iris can do von neumann but we're just gonna put this as false for now
         }
     }
 }
