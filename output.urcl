@@ -8,74 +8,84 @@ CAL .main
 OUT %NUMB $1
 HLT
 .main
-	.lbl.1.
-	MOV $7 1
-	ADD $2 $2 1
-	STR $2 $7
-	ADD $2 $2 -1
-	BRE .lbl.3. 1 1
-	JMP .lbl.4.
-	.lbl.3.
-	ADD $2 $2 1
-	LOD $7 $2
-	ADD $2 $2 -1
-	BRE .lbl.7. $7 0
-	JMP .lbl.6.
-	.lbl.4.
+	.lbl.gen.1.
 	MOV $7 0
 	ADD $2 $2 1
 	STR $2 $7
 	ADD $2 $2 -1
-	JMP .lbl.3.
-	.lbl.7.
-	MOV $7 3
+	MOV $7 4
 	ADD $2 $2 2
 	STR $2 $7
 	ADD $2 $2 -2
-	JMP .lbl.8.
-	.lbl.6.
+	JMP .lbl.lcont0.
+	.lbl.lcont0.
 	MOV $7 1
 	ADD $2 $2 3
 	STR $2 $7
 	ADD $2 $2 -3
-	BRE .lbl.10. 2 2
-	JMP .lbl.11.
-	.lbl.8.
 	ADD $2 $2 2
 	LOD $7 $2
 	ADD $2 $2 -2
+	SBRG .lbl.gen.3. $7 0
+	JMP .lbl.gen.4.
+	.lbl.gen.3.
+	ADD $2 $2 3
+	LOD $7 $2
+	ADD $2 $2 -3
+	BRE .lbl.lbreak.0. $7 0
+	JMP .lbl.gen.5.
+	.lbl.gen.4.
+	MOV $7 0
+	ADD $2 $2 3
+	STR $2 $7
+	ADD $2 $2 -3
+	JMP .lbl.gen.3.
+	.lbl.lbreak.0.
+	ADD $2 $2 1
+	LOD $7 $2
+	ADD $2 $2 -1
 	MOV $1 $7
 	RET
-	.lbl.10.
-	ADD $2 $2 3
+	.lbl.gen.5.
+	ADD $2 $2 1
 	LOD $7 $2
-	ADD $2 $2 -3
-	BRE .lbl.14. $7 0
-	JMP .lbl.13.
-	.lbl.11.
-	MOV $7 0
-	ADD $2 $2 3
+	ADD $2 $2 -1
+	ADD $2 $2 2
+	LOD $8 $2
+	ADD $2 $2 -2
+	ADD $7 $7 $8
+	ADD $2 $2 1
 	STR $2 $7
-	ADD $2 $2 -3
-	JMP .lbl.10.
-	.lbl.14.
-	MOV $7 2
-	ADD $2 $2 4
+	ADD $2 $2 -1
+	ADD $2 $2 2
+	LOD $7 $2
+	ADD $2 $2 -2
+	SUB $7 $7 1
+	ADD $2 $2 2
 	STR $2 $7
-	ADD $2 $2 -4
-	JMP .lbl.15.
-	.lbl.13.
+	ADD $2 $2 -2
 	MOV $7 1
 	ADD $2 $2 4
 	STR $2 $7
 	ADD $2 $2 -4
-	JMP .lbl.15.
-	.lbl.15.
+	ADD $2 $2 2
+	LOD $7 $2
+	ADD $2 $2 -2
+	BRE .lbl.gen.7. $7 1
+	JMP .lbl.gen.8.
+	.lbl.gen.7.
 	ADD $2 $2 4
 	LOD $7 $2
 	ADD $2 $2 -4
-	MOV $7 $7
-	ADD $2 $2 2
+	BRE .lbl.gen.10. $7 0
+	JMP .lbl.gen.9.
+	.lbl.gen.8.
+	MOV $7 0
+	ADD $2 $2 4
 	STR $2 $7
-	ADD $2 $2 -2
-	JMP .lbl.8.
+	ADD $2 $2 -4
+	JMP .lbl.gen.7.
+	.lbl.gen.10.
+	JMP .lbl.lcont0.
+	.lbl.gen.9.
+	JMP .lbl.lbreak.0.

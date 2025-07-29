@@ -118,7 +118,25 @@ impl Analyzer {
             },
             ast::Statement::Block(block) => {
                 ast::Statement::Block(self.analyze_block(block, context))
-            }
+            },
+            ast::Statement::While(cond, box stmt, label) => {
+                let cond = self.analyze_expr(cond, context);
+
+                let stmt = self.analyze_statement(stmt, context);
+
+                ast::Statement::While(cond, Box::new(stmt), label)
+            },
+            ast::Statement::DoWhile(cond, box stmt, label) => {
+                let cond = self.analyze_expr(cond, context);
+
+                let stmt = self.analyze_statement(stmt, context);
+
+                ast::Statement::DoWhile(cond, Box::new(stmt), label)
+            },
+            ast::Statement::Break(_) |
+            ast::Statement::Continue(_) => statement,
+
+            ast::Statement::For { .. } => unimplemented!()
         }
     }
 

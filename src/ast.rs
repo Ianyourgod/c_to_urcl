@@ -57,6 +57,24 @@ pub enum Statement {
     Expr(Expr),
     If(Expr, Box<(Statement, Option<Statement>)>),
     Block(Block),
+    While(Expr, Box<Statement>, u32),
+    DoWhile(Expr, Box<Statement>, u32),
+    For {
+        init: ForInit,
+        cond: Option<Expr>,
+        post: Option<Expr>,
+        body: Box<Statement>,
+        label: u32,
+    },
+    Break(u32),
+    Continue(u32),
+}
+
+#[derive(Debug, Clone)]
+pub enum ForInit {
+    Decl(VarDeclaration),
+    Expr(Expr),
+    None,
 }
 
 #[derive(Debug, Clone)]

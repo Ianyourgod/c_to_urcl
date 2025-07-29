@@ -27,18 +27,22 @@ Statement: Statement = {
 
 OpenStatement: Statement = {
     "if" "(" <c:Expr> ")" <t:Statement> => Statement::If(c, Box::new((t, None))),
-    "if" "(" <c:Expr> ")" <t:ClosedStatement> "else" <e:OpenStatement> => Statement::If(c, Box::new((t, Some(e))))
+    "if" "(" <c:Expr> ")" <t:ClosedStatement> "else" <e:OpenStatement> => Statement::If(c, Box::new((t, Some(e)))),
+    "while" "(" <cond:Expr> ")" <s:OpenStatement> => Statement::While(cond, Box::new(s), 0)
 }
 
 ClosedStatement: Statement = {
     NormalStatement => <>,
-    "if" "(" <c:Expr> ")" <t:ClosedStatement> "else" <e:ClosedStatement> => Statement::If(c, Box::new((t, Some(e))))
+    "if" "(" <c:Expr> ")" <t:ClosedStatement> "else" <e:ClosedStatement> => Statement::If(c, Box::new((t, Some(e)))),
+    "while" "(" <cond:Expr> ")" <s:ClosedStatement> => Statement::While(cond, Box::new(s), 0)
 }
 
 NormalStatement: Statement = {
     "return" <e:Expr> ";" => Statement::Return(e),
     <e:Expr> ";" => Statement::Expr(e),
-    Block => Statement::Block(<>)
+    Block => Statement::Block(<>),
+    "break" ";" => Statement::Break(0),
+    "continue" ";" => Statement::Continue(0)
 }
 
 VarDeclaration: VarDeclaration = {

@@ -1,7 +1,26 @@
-use std::{collections::HashMap, rc::Rc};
+use std::{collections::HashMap, fmt::Display};
 
-pub type Ident = Rc<String>;
-pub type GenericBlockID = u32;
+pub use crate::Ident;
+
+#[derive(Debug, Clone, Copy, Hash, PartialEq, Eq)]
+pub enum GenericBlockID {
+    Generic(u32),
+    LoopBreak(u32),
+    LoopContinue(u32),
+}
+
+impl Display for GenericBlockID {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let (s, n) = match self {
+            GenericBlockID::Generic(n) => ("gen.", *n),
+            GenericBlockID::LoopBreak(n) => ("lbreak.", *n),
+            GenericBlockID::LoopContinue(n) => ("lcont", *n)
+        };
+
+        f.write_str(s)?;
+        f.write_str(&n.to_string())
+    }
+}
 
 #[derive(Debug, Clone)]
 pub struct Program {

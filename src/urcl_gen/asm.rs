@@ -1,7 +1,9 @@
 #![allow(unused)]
 
 use std::fmt::Display;
-use crate::mir::mir_def::Ident;
+use crate::Ident;
+
+use crate::mir::mir_def::GenericBlockID;
 
 #[derive(Debug, Clone)]
 pub struct Program<V>
@@ -81,15 +83,15 @@ where
         dst: Reg,
     },
     Jmp {
-        label: u32,
+        label: GenericBlockID,
     },
     Branch {
-        label: u32,
+        label: GenericBlockID,
         src1: V,
         src2: V,
         cond: Cond,
     },
-    Label(u32),
+    Label(GenericBlockID),
     Push(V),
     Pop(Reg),
     Ret,

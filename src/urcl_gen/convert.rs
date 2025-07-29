@@ -115,7 +115,7 @@ fn term_to_asm(term: mir_def::Terminator, instructions: &mut Vec<asm::Instr<asm:
             };
 
             instructions.push(asm::Instr::Branch { label: target, src1, src2, cond });
-            instructions.push(asm::Instr::Jmp { label: fail })
+            instructions.push(asm::Instr::Jmp { label: fail });
         }
     }
 }

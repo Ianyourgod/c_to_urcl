@@ -44,14 +44,15 @@ impl<'l> FunctionGenerator<'l> {
 
         generator.tmp_count += 1;
         let n = generator.tmp_count;
+        let id = mir_def::GenericBlockID::Generic(n);
 
-        cfg.blocks.insert(mir_def::BlockID::Start, mir_def::BasicBlock::Start { successors: vec![mir_def::BlockID::Generic(n)] });
+        cfg.blocks.insert(mir_def::BlockID::Start, mir_def::BasicBlock::Start { successors: vec![mir_def::BlockID::Generic(id)] });
         cfg.blocks.insert(mir_def::BlockID::End, mir_def::BasicBlock::End);
 
         Self {
             generator,
             cfg,
-            current_block: Self::temp_block_ns(n)
+            current_block: Self::temp_block_ns(id)
         }
     }
 
@@ -136,7 +137,71 @@ impl<'l> FunctionGenerator<'l> {
             },
             ast::Statement::Block(block) => {
                 self.generate_block(block);
-            }
+            },
+            ast::Statement::While(cond, box stmt, label) => {
+                let continue_label = self.gen_loop_block_id(label, false);
+                let break_label = self.gen_loop_block_id(label, true);
+                self.current_block.terminator = mir_def::Terminator::Jump { target: continue_label };
+                self.new_block_w_id(continue_label);
+
+                let cond = self.generate_expr(cond);
+
+                let loop_label = self.gen_block_id();
+
+                self.current_block.terminator = mir_def::Terminator::JumpCond {
+                    target: break_label,
+                    fail: loop_label,
+                    src1: cond,
+                    src2: mir_def::Val::Num(0),
+                    cond: mir_def::Cond::Equal
+                };
+
+                self.new_block_w_id(loop_label);
+
+                self.generate_statement(stmt);
+
+                self.current_block.terminator = mir_def::Terminator::Jump { target: continue_label };
+
+                self.new_block_w_id(break_label);
+            },
+            ast::Statement::DoWhile(cond, box stmt, label) => {
+                let continue_label = self.gen_loop_block_id(label, false);
+                let break_label = self.gen_loop_block_id(label, true);
+
+                let loop_label = self.gen_block_id();
+                self.current_block.terminator = mir_def::Terminator::Jump { target: loop_label };
+                self.new_block_w_id(loop_label);
+
+                self.generate_statement(stmt);
+
+                self.current_block.terminator = mir_def::Terminator::Jump { target: continue_label };
+
+                self.new_block_w_id(continue_label);
+
+                let cond = self.generate_expr(cond);
+
+                self.current_block.terminator = mir_def::Terminator::JumpCond {
+                    target: break_label,
+                    fail: loop_label,
+                    src1: cond,
+                    src2: mir_def::Val::Num(0),
+                    cond: mir_def::Cond::Equal
+                };
+
+                self.new_block_w_id(break_label);
+            },
+            ast::Statement::Break(label) => {
+                let label = self.gen_loop_block_id(label, true);
+                self.current_block.terminator = mir_def::Terminator::Jump { target: label };
+                self.new_block();
+            },
+            ast::Statement::Continue(label) => {
+                let label = self.gen_loop_block_id(label, false);
+                self.current_block.terminator = mir_def::Terminator::Jump { target: label };
+                self.new_block();
+            },
+
+            ast::Statement::For { .. } => unimplemented!()
         }
     }
 
@@ -164,7 +229,15 @@ impl<'l> FunctionGenerator<'l> {
 
     fn gen_block_id(&mut self) -> mir_def::GenericBlockID {
         self.generator.tmp_count += 1;
-        self.generator.tmp_count
+        mir_def::GenericBlockID::Generic(self.generator.tmp_count)
+    }
+
+    fn gen_loop_block_id(&mut self, loop_id: u32, is_break: bool) -> mir_def::GenericBlockID {
+        if is_break {
+            mir_def::GenericBlockID::LoopBreak(loop_id)
+        } else {
+            mir_def::GenericBlockID::LoopContinue(loop_id)
+        }
     }
 
     fn generate_expr(&mut self, expr: ast::Expr) -> mir_def::Val {

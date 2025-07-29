@@ -1,3 +1,12 @@
 int main() {
-    return 1 == 1 ? 2 == 2 ? 1 : 2 : 3;
+    int a = 0;
+    int b = 4;
+    while (b > 0) {
+        a += b;
+        b -= 1;
+        if (b == 1) {
+            break;
+        }
+    }
+    return a;
 }
