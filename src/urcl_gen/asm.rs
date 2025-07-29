@@ -74,12 +74,14 @@ where
         src: V,
         dst: V,
     },
-    Lod {
+    LLod {
         src: Reg,
         dst: Reg,
+        offset: V,
     },
-    Str {
+    LStr {
         src: V,
+        offset: V,
         dst: Reg,
     },
     Jmp {
@@ -187,11 +189,11 @@ where
             Instr::Mov { src, dst } => {
                 format!("MOV {dst} {src}")
             },
-            Instr::Lod { src, dst } => {
-                format!("LOD {dst} {src}")
+            Instr::LLod { src, dst, offset } => {
+                format!("LOD {dst} {src} {offset}")
             },
-            Instr::Str { src, dst } => {
-                format!("STR {dst} {src}")
+            Instr::LStr { src, dst, offset } => {
+                format!("STR {dst} {offset} {src}")
             }
             Instr::Push(val) => {
                 format!("PSH {val}")

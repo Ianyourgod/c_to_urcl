@@ -74,13 +74,15 @@ impl RemovePseudo {
 
                 if let Some(idx) = idx { self.pval_dst_write(PVAL_DST, idx, instructions); }
             },
-            asm::Instr::Lod { src, dst } => {
-                instructions.push(asm::Instr::Lod { src, dst })
+            asm::Instr::LLod { src, dst, offset } => {
+                let offset = self.convert_pval_src(offset, 7, instructions);
+                instructions.push(asm::Instr::LLod { src, dst, offset })
             },
-            asm::Instr::Str { src, dst } => {
+            asm::Instr::LStr { src, dst, offset } => {
+                let offset = self.convert_pval_src(offset, 7, instructions);
                 let src = self.convert_pval_src(src, PVAL_SRC1, instructions);
 
-                instructions.push(asm::Instr::Str { src, dst })
+                instructions.push(asm::Instr::LStr { src, dst, offset })
             },
             asm::Instr::Push(src) => {
                 let src = self.convert_pval_src(src, PVAL_SRC1, instructions);
@@ -111,22 +113,8 @@ impl RemovePseudo {
                     self.stack_offset
                 }) as i32;
 
-                instructions.push(asm::Instr::Binary {
-                    binop: asm::Binop::Add,
-                    src1: asm::Reg::val(2),
-                    src2: asm::Val::Imm(v),
-                    dst: asm::Reg::val(2)
-                });
-
                 // now we need to lod it
-                instructions.push(asm::Instr::Lod { src: asm::Reg::new(2), dst: asm::Reg::new(load_to) });
-
-                instructions.push(asm::Instr::Binary {
-                    binop: asm::Binop::Add,
-                    src1: asm::Reg::val(2),
-                    src2: asm::Val::Imm(-v),
-                    dst: asm::Reg::val(2)
-                });
+                instructions.push(asm::Instr::LLod { src: asm::Reg::new(2), dst: asm::Reg::new(load_to), offset: asm::Val::Imm(v) });
 
                 asm::Reg::val(load_to)
             }
@@ -149,21 +137,10 @@ impl RemovePseudo {
     }
 
     fn pval_dst_write(&mut self, written_to: u8, idx: i32, instructions: &mut Vec<asm::Instr<asm::Val>>) {
-        instructions.push(asm::Instr::Binary {
-            binop: asm::Binop::Add,
-            src1: asm::Reg::val(2),
-            src2: asm::Val::Imm(idx),
-            dst: asm::Reg::val(2)
-        });
-        instructions.push(asm::Instr::Str {
+        instructions.push(asm::Instr::LStr {
             src: asm::Reg::val(written_to),
-            dst: asm::Reg::new(2)
-        });
-        instructions.push(asm::Instr::Binary {
-            binop: asm::Binop::Add,
-            src1: asm::Reg::val(2),
-            src2: asm::Val::Imm(-idx),
-            dst: asm::Reg::val(2)
+            dst: asm::Reg::new(2),
+            offset: asm::Val::Imm(idx)
         });
     }
 }
