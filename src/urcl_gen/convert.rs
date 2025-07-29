@@ -53,23 +53,36 @@ fn block_to_asm(block: mir_def::BasicBlock, instructions: &mut Vec<asm::Instr<as
 fn instr_to_asm(instr: mir_def::Instruction, instructions: &mut Vec<asm::Instr<asm::PVal>>) {
     match instr {
         mir_def::Instruction::Binary { op, src1, src2, dst } => {
-            let binop = match op {
-                mir_def::Binop::Add => asm::Binop::Add,
-                mir_def::Binop::Sub => asm::Binop::Sub,
-                mir_def::Binop::Mul => asm::Binop::Mul,
-                mir_def::Binop::Div => asm::Binop::SDiv,
-                mir_def::Binop::Mod => asm::Binop::Mod,
-                mir_def::Binop::BitwiseAnd => asm::Binop::And,
-                mir_def::Binop::BitwiseOr => asm::Binop::Or,
-                mir_def::Binop::BitwiseXor => asm::Binop::Xor,
-                mir_def::Binop::LeftShift => asm::Binop::LeftShift,
-                mir_def::Binop::RightShift => asm::Binop::RightShift,
+            let (binop, needs_bit_select) = match op {
+                mir_def::Binop::Add => (asm::Binop::Add, false),
+                mir_def::Binop::Sub => (asm::Binop::Sub, false),
+                mir_def::Binop::Mul => (asm::Binop::Mul, false),
+                mir_def::Binop::Div => (asm::Binop::SDiv, false),
+                mir_def::Binop::Mod => (asm::Binop::Mod, false),
+                mir_def::Binop::BitwiseAnd => (asm::Binop::And, false),
+                mir_def::Binop::BitwiseOr => (asm::Binop::Or, false),
+                mir_def::Binop::BitwiseXor => (asm::Binop::Xor, false),
+                mir_def::Binop::LeftShift => (asm::Binop::LeftShift, false),
+                mir_def::Binop::RightShift => (asm::Binop::RightShift, false),
+
+                mir_def::Binop::Equal => (asm::Binop::Set(asm::Cond::Equal), true),
+                mir_def::Binop::NotEqual => (asm::Binop::Set(asm::Cond::NotEqual), true),
+                mir_def::Binop::LessThan => (asm::Binop::Set(asm::Cond::SLessThan), true),
+                mir_def::Binop::LessEqual => (asm::Binop::Set(asm::Cond::SLessEqual), true),
+                mir_def::Binop::GreaterThan => (asm::Binop::Set(asm::Cond::SGreaterThan), true),
+                mir_def::Binop::GreaterEqual => (asm::Binop::Set(asm::Cond::SGreaterEqual), true),
             };
 
             let src1 = val_to_asm(src1, instructions);
             let src2 = val_to_asm(src2, instructions);
 
-            instructions.push(asm::Instr::Binary { binop, src1, src2, dst: asm::PVal::Var(dst) });
+            let dst = asm::PVal::Var(dst);
+
+            instructions.push(asm::Instr::Binary { binop, src1, src2, dst: dst.clone() });
+
+            if needs_bit_select {
+                instructions.push(asm::Instr::Binary { binop: asm::Binop::And, src1: dst.clone(), src2: asm::PVal::Imm(1), dst })
+            }
         },
         mir_def::Instruction::Unary { op, inner, dst } => {
             let unop = match op {

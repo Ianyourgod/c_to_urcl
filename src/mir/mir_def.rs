@@ -115,6 +115,7 @@ impl Terminator {
     }
 }
 
+#[allow(dead_code)]
 #[derive(Debug, Clone, Copy)]
 pub enum Cond {
     Equal,
@@ -137,6 +138,12 @@ pub enum Binop {
     BitwiseXor,
     LeftShift,
     RightShift,
+    Equal,
+    NotEqual,
+    LessThan,
+    LessEqual,
+    GreaterThan,
+    GreaterEqual,
 }
 
 #[derive(Debug, Clone, Copy)]

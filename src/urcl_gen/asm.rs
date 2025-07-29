@@ -109,18 +109,27 @@ pub enum Cond {
     NotEqual,
 }
 
-impl Display for Cond {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        let s = match self {
+impl Cond {
+    pub fn to_string_branch(&self) -> String {
+        match self {
             Cond::Equal => "BRE",
             Cond::NotEqual => "BNE",
             Cond::SLessThan => "SBRL",
             Cond::SGreaterThan => "SBRG",
             Cond::SLessEqual => "SBLE",
             Cond::SGreaterEqual => "SBGE",
-        };
+        }.to_string()
+    }
 
-        f.write_str(s)
+    pub fn to_string_set(&self) -> String {
+        match self {
+            Cond::Equal => "SETE",
+            Cond::NotEqual => "SETNE",
+            Cond::SGreaterThan => "SSETG",
+            Cond::SGreaterEqual => "SSETGE",
+            Cond::SLessThan => "SSETL",
+            Cond::SLessEqual => "SSETLE",
+        }.to_string()
     }
 }
 
@@ -136,6 +145,7 @@ pub enum Binop {
     Xor,
     LeftShift,
     RightShift,
+    Set(Cond),
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -168,6 +178,7 @@ impl Display for Binop {
             Binop::Xor => "XOR",
             Binop::LeftShift => "BSL",
             Binop::RightShift => "BSR",
+            Binop::Set(c) => &c.to_string_set()
         };
 
         f.write_str(s)
@@ -190,10 +201,10 @@ where
                 format!("MOV {dst} {src}")
             },
             Instr::LLod { src, dst, offset } => {
-                format!("LOD {dst} {src} {offset}")
+                format!("LLOD {dst} {src} {offset}")
             },
             Instr::LStr { src, dst, offset } => {
-                format!("STR {dst} {offset} {src}")
+                format!("LSTR {dst} {offset} {src}")
             }
             Instr::Push(val) => {
                 format!("PSH {val}")
@@ -211,6 +222,7 @@ where
                 format!("JMP .lbl.{}.", label)
             },
             Instr::Branch { label, src1, src2, cond } => {
+                let cond = cond.to_string_branch();
                 format!("{cond} .lbl.{label}. {src1} {src2}")
             }
         };

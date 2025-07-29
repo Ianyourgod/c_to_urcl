@@ -9,37 +9,11 @@ OUT %NUMB $1
 HLT
 .main
 	.lbl.gen.1.
-	MOV $7 0
-	STR $2 1 $7
-	MOV $7 0
-	STR $2 2 $7
-	JMP .lbl.gen.2.
-	.lbl.gen.2.
-	MOV $7 1
-	STR $2 3 $7
-	LOD $7 $2 2
-	SBRL .lbl.gen.4. $7 10
-	JMP .lbl.gen.5.
-	.lbl.gen.4.
-	LOD $7 $2 3
-	BRE .lbl.lbreak.1. $7 0
-	JMP .lbl.gen.6.
-	.lbl.gen.5.
-	MOV $7 0
-	STR $2 3 $7
-	JMP .lbl.gen.4.
-	.lbl.lbreak.1.
-	LOD $7 $2 1
+	SETE $7 1 1
+	LSTR $2 1 $7
+	LLOD $7 $2 1
+	AND $7 $7 1
+	LSTR $2 1 $7
+	LLOD $7 $2 1
 	MOV $1 $7
 	RET
-	.lbl.gen.6.
-	LOD $7 $2 1
-	LOD $8 $2 2
-	ADD $7 $7 $8
-	STR $2 1 $7
-	JMP .lbl.lcont1.
-	.lbl.lcont1.
-	LOD $7 $2 2
-	ADD $7 $7 1
-	STR $2 2 $7
-	JMP .lbl.gen.2.

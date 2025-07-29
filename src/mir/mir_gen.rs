@@ -408,56 +408,6 @@ impl<'l> FunctionGenerator<'l> {
 
                 mir_def::Val::Var(res)
             },
-            ast::Expr::Binary(op @ (
-                ast::BinOp::Equal | ast::BinOp::NotEqual |
-                ast::BinOp::LessThan | ast::BinOp::GreaterThanEqual |
-                ast::BinOp::GreaterThan | ast::BinOp::LessThanEqual 
-            ), box (left, right)) => {
-                let op = match op {
-                    ast::BinOp::Equal => mir_def::Cond::Equal,
-                    ast::BinOp::NotEqual => mir_def::Cond::NotEqual,
-                    ast::BinOp::LessThan => mir_def::Cond::LessThan,
-                    ast::BinOp::LessThanEqual => mir_def::Cond::LessThanEqual,
-                    ast::BinOp::GreaterThan => mir_def::Cond::GreaterThan,
-                    ast::BinOp::GreaterThanEqual => mir_def::Cond::GreaterThanEqual,
-
-                    _ => unreachable!()
-                };
-
-                let tmp = self.gen_tmp_name();
-
-                let left = self.generate_expr(left);
-                let right = self.generate_expr(right);
-
-                self.current_block.instructions.push(mir_def::Instruction::Copy {
-                    src: mir_def::Val::Num(1),
-                    dst: tmp.clone()
-                });
-
-                let true_id = self.gen_block_id();
-                let false_id = self.gen_block_id();
-
-                self.current_block.terminator = mir_def::Terminator::JumpCond {
-                    target: true_id,
-                    fail: false_id,
-                    src1: left,
-                    src2: right,
-                    cond: op
-                };
-
-                self.new_block_w_id(false_id);
-
-                self.current_block.instructions.push(mir_def::Instruction::Copy {
-                    src: mir_def::Val::Num(0),
-                    dst: tmp.clone()
-                });
-
-                self.current_block.terminator = mir_def::Terminator::Jump { target: true_id };
-
-                self.new_block_w_id(true_id);
-
-                mir_def::Val::Var(tmp)
-            },
             ast::Expr::Binary(op, box (left, right)) => {
                 let op = match op {
                     ast::BinOp::Add => mir_def::Binop::Add,
@@ -470,11 +420,14 @@ impl<'l> FunctionGenerator<'l> {
                     ast::BinOp::BitwiseOr => mir_def::Binop::BitwiseOr,
                     ast::BinOp::LeftShift => mir_def::Binop::LeftShift,
                     ast::BinOp::RightShift => mir_def::Binop::RightShift,
+                    ast::BinOp::Equal => mir_def::Binop::Equal,
+                    ast::BinOp::NotEqual => mir_def::Binop::NotEqual,
+                    ast::BinOp::LessThan => mir_def::Binop::LessThan,
+                    ast::BinOp::LessThanEqual => mir_def::Binop::LessEqual,
+                    ast::BinOp::GreaterThan => mir_def::Binop::GreaterThan,
+                    ast::BinOp::GreaterThanEqual => mir_def::Binop::GreaterEqual,
 
                     ast::BinOp::Assign(_) |
-                    ast::BinOp::Equal | ast::BinOp::NotEqual |
-                    ast::BinOp::GreaterThan | ast::BinOp::LessThan |
-                    ast::BinOp::GreaterThanEqual | ast::BinOp::LessThanEqual |
                     ast::BinOp::And | ast::BinOp::Or => unreachable!()
                 };
 
