@@ -1,6 +1,3 @@
 int main() {
-    int b;
-    int a = b = 5;
-    a = (a >> 1) + 3;
-    return a == b;
+    return 1 == 1 ? 2 == 2 ? 1 : 2 : 3;
 }

@@ -21,9 +21,25 @@ BlockItem: BlockItem = {
 }
 
 Statement: Statement = {
-    "return " <e:Expr> ";" => Statement::Return(e),
-    <e:Expr> ";" => Statement::Expr(e),
+    OpenStatement => <>,
+    ClosedStatement => <>,
 };
+
+OpenStatement: Statement = {
+    "if" "(" <c:Expr> ")" <t:Statement> => Statement::If(c, Box::new((t, None))),
+    "if" "(" <c:Expr> ")" <t:ClosedStatement> "else" <e:OpenStatement> => Statement::If(c, Box::new((t, Some(e))))
+}
+
+ClosedStatement: Statement = {
+    NormalStatement => <>,
+    "if" "(" <c:Expr> ")" <t:ClosedStatement> "else" <e:ClosedStatement> => Statement::If(c, Box::new((t, Some(e))))
+}
+
+NormalStatement: Statement = {
+    "return" <e:Expr> ";" => Statement::Return(e),
+    <e:Expr> ";" => Statement::Expr(e),
+    Block => Statement::Block(<>)
+}
 
 VarDeclaration: VarDeclaration = {
     Type <n:Ident> "=" <e:Expr> ";" => VarDeclaration::new(Rc::new(n), Some(e)),
@@ -35,30 +51,79 @@ Type: () = {
 }
 
 Expr: Expr = {
-    #[precedence(level="0")]
+    Expr14 => <>,
+};
+
+Expr14: Expr = {
+    <l:Expr13> <o:Assign> <r:Expr14> => Expr::Binary(BinOp::Assign(o),Box::new((l,r))),
+    Expr13 => <>,
+};
+
+Expr13: Expr = {
+    <cond:Expr13> "?" <t:Expr> ":" <e:Expr12> => Expr::Ternary(Box::new((cond,t,e))),
+    Expr12,
+};
+
+Expr12: Expr = {
+    <l:Expr12> "||" <r:Expr11> => Expr::Binary(BinOp::Or,Box::new((l,r))),
+    Expr11,
+};
+
+Expr11: Expr = {
+    <l:Expr11> "&&" <r:Expr10> => Expr::Binary(BinOp::And,Box::new((l,r))),
+    Expr10,
+};
+
+Expr10: Expr = {
+    <l:Expr10> "|" <r:Expr9> => Expr::Binary(BinOp::BitwiseOr,Box::new((l,r))),
+    Expr9,
+};
+
+Expr9: Expr = {
+    <l:Expr9> "^" <r:Expr8> => Expr::Binary(BinOp::BitwiseXor,Box::new((l,r))),
+    Expr8,
+};
+
+Expr8: Expr = {
+    <l:Expr8> "&" <r:Expr7> => Expr::Binary(BinOp::BitwiseAnd,Box::new((l,r))),
+    Expr7,
+};
+
+Expr7: Expr = {
+    <l:Expr7> <o:BinOpEqs> <r:Expr6> => Expr::Binary(o,Box::new((l,r))),
+    Expr6,
+};
+
+Expr6: Expr = {
+    <l:Expr6> <o:BinOpCmps> <r:Expr5> => Expr::Binary(o,Box::new((l,r))),
+    Expr5,
+};
+
+Expr5: Expr = {
+    <l:Expr5> <o:BinOpShifts> <r:Expr4> => Expr::Binary(o,Box::new((l,r))),
+    Expr4,
+};
+
+Expr4: Expr = {
+    <l:Expr4> <o:BinOpAddSub> <r:Expr3> => Expr::Binary(o,Box::new((l,r))),
+    Expr3,
+};
+
+Expr3: Expr = {
+    <l:Expr3> <o:BinOpMulDivMod> <r:Expr2> => Expr::Binary(o,Box::new((l,r))),
+    Expr2,
+};
+
+Expr2: Expr = {
+    Expr1,
+};
+
+Expr1: Expr = {
+    Expr0,
+}
+
+Expr0: Expr = {
     Term,
-    #[precedence(level="3")] #[assoc(side="left")]
-    <l:Expr> <o:BinOpMulDivMod> <r:Expr> => Expr::Binary(o,Box::new((l,r))),
-    #[precedence(level="4")] #[assoc(side="left")]
-    <l:Expr> <o:BinOpAddSub> <r:Expr> => Expr::Binary(o,Box::new((l,r))),
-    #[precedence(level="5")] #[assoc(side="left")]
-    <l:Expr> <o:BinOpShifts> <r:Expr> => Expr::Binary(o,Box::new((l,r))),
-    #[precedence(level="6")] #[assoc(side="left")]
-    <l:Expr> <o:BinOpCmps> <r:Expr> => Expr::Binary(o,Box::new((l,r))),
-    #[precedence(level="7")] #[assoc(side="left")]
-    <l:Expr> <o:BinOpEqs> <r:Expr> => Expr::Binary(o,Box::new((l,r))),
-    #[precedence(level="8")] #[assoc(side="left")]
-    <l:Expr> "&" <r:Expr> => Expr::Binary(BinOp::BitwiseAnd,Box::new((l,r))),
-    #[precedence(level="9")] #[assoc(side="left")]
-    <l:Expr> "^" <r:Expr> => Expr::Binary(BinOp::BitwiseXor,Box::new((l,r))),
-    #[precedence(level="10")] #[assoc(side="left")]
-    <l:Expr> "|" <r:Expr> => Expr::Binary(BinOp::BitwiseOr,Box::new((l,r))),
-    #[precedence(level="11")] #[assoc(side="left")]
-    <l:Expr> "&&" <r:Expr> => Expr::Binary(BinOp::And,Box::new((l,r))),
-    #[precedence(level="12")] #[assoc(side="left")]
-    <l:Expr> "||" <r:Expr> => Expr::Binary(BinOp::Or,Box::new((l,r))),
-    #[precedence(level="14")] #[assoc(side="right")]
-    <l:Expr> <o:Assign> <r:Expr> => Expr::Binary(BinOp::Assign(o),Box::new((l,r)))
 };
 
 BinOpMulDivMod: BinOp = {

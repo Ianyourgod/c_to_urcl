@@ -26,13 +26,12 @@ fn cfg_to_asm(cfg: mir_def::CFG, instructions: &mut Vec<asm::Instr<asm::PVal>>) 
     let mut done = HashSet::new();
 
     while let Some(block) = worklist.pop_front() {
-        done.insert(block);
-
         let block = cfg.blocks.get(&block).unwrap();
 
         for successor in block.get_successors() {
             if !done.contains(&successor) {
                 worklist.push_back(successor);
+                done.insert(successor);
             }
         }
 

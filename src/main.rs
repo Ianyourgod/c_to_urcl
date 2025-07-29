@@ -24,7 +24,7 @@ fn main() {
 
     let mir = mir::generate_mir(ast);
 
-    println!("{:#?}", mir);
+    //println!("{:#?}", mir);
 
     let asm = urcl_gen::mir_to_asm(mir);
 

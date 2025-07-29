@@ -107,6 +107,17 @@ impl Analyzer {
             },
             ast::Statement::Expr(expr) => {
                 ast::Statement::Expr(self.analyze_expr(expr, context))
+            },
+            ast::Statement::If(cond, box (then, else_stmt)) => {
+                let cond = self.analyze_expr(cond, context);
+
+                let then = self.analyze_statement(then, context);
+                let else_stmt = else_stmt.map(|e|self.analyze_statement(e, context));
+
+                ast::Statement::If(cond, Box::new((then, else_stmt)))
+            },
+            ast::Statement::Block(block) => {
+                ast::Statement::Block(self.analyze_block(block, context))
             }
         }
     }
@@ -143,7 +154,14 @@ impl Analyzer {
                 };
 
                 ast::Expr::Var(name.ident.clone())
-            }
+            },
+            ast::Expr::Ternary(box (cond, l, r)) => {
+                let cond = self.analyze_expr(cond, context);
+                let l = self.analyze_expr(l, context);
+                let r = self.analyze_expr(r, context);
+
+                ast::Expr::Ternary(Box::new((cond, l, r)))
+            },
 
             ast::Expr::Number(_) => expr,
         }

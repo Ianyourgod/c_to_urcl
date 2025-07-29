@@ -65,6 +65,8 @@ impl<'l> FunctionGenerator<'l> {
 
     pub fn generate(mut self, function: ast::FunctionDecl) -> mir_def::Function {
         self.generate_block(function.block);
+
+        self.new_block();
         
         mir_def::Function { name: function.name, basic_blocks: self.cfg }
     }
@@ -100,6 +102,40 @@ impl<'l> FunctionGenerator<'l> {
             },
             ast::Statement::Expr(expr) => {
                 self.generate_expr(expr);
+            },
+            ast::Statement::If(cond, box (then, else_stmt)) => {
+                let cond = self.generate_expr(cond);
+
+                let cond_true_label = self.gen_block_id();
+                let cond_false_label = self.gen_block_id();
+
+                self.current_block.terminator = mir_def::Terminator::JumpCond {
+                    target: cond_false_label,
+                    fail: cond_true_label,
+                    src1: cond,
+                    src2: mir_def::Val::Num(0),
+                    cond: mir_def::Cond::Equal
+                };
+
+                self.new_block_w_id(cond_true_label);
+
+                self.generate_statement(then);
+
+                if let Some(else_stmt) = else_stmt {
+                    let end_label = self.gen_block_id();
+                    self.current_block.terminator = mir_def::Terminator::Jump { target: end_label };
+                    self.new_block_w_id(cond_false_label);
+                    self.generate_statement(else_stmt);
+                    self.current_block.terminator = mir_def::Terminator::Jump { target: end_label };
+                    self.new_block_w_id(end_label);
+
+                } else {
+                    self.current_block.terminator = mir_def::Terminator::Jump { target: cond_false_label };
+                    self.new_block_w_id(cond_false_label);
+                }
+            },
+            ast::Statement::Block(block) => {
+                self.generate_block(block);
             }
         }
     }
@@ -388,6 +424,47 @@ impl<'l> FunctionGenerator<'l> {
                 });
 
                 mir_def::Val::Var(tmp_name)
+            },
+            ast::Expr::Ternary(box (cond, then_expr, else_expr)) => {
+                let cond = self.generate_expr(cond);
+
+                let ret = self.gen_tmp_name();
+
+                let true_label = self.gen_block_id();
+                let false_label = self.gen_block_id();
+                let end_label = self.gen_block_id();
+
+                self.current_block.terminator = mir_def::Terminator::JumpCond {
+                    target: false_label,
+                    fail: true_label,
+                    src1: cond,
+                    src2: mir_def::Val::Num(0),
+                    cond: mir_def::Cond::Equal
+                };
+
+                self.new_block_w_id(true_label);
+
+                let v = self.generate_expr(then_expr);
+                self.current_block.instructions.push(mir_def::Instruction::Copy {
+                    src: v,
+                    dst: ret.clone()
+                });
+
+                self.current_block.terminator = mir_def::Terminator::Jump { target: end_label };
+
+                self.new_block_w_id(false_label);
+
+                let v = self.generate_expr(else_expr);
+                self.current_block.instructions.push(mir_def::Instruction::Copy {
+                    src: v,
+                    dst: ret.clone()
+                });
+
+                self.current_block.terminator = mir_def::Terminator::Jump { target: end_label };
+
+                self.new_block_w_id(end_label);
+
+                mir_def::Val::Var(ret)
             }
         }
     }

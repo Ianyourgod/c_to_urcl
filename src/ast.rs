@@ -55,6 +55,8 @@ pub enum BlockItem {
 pub enum Statement {
     Return(Expr),
     Expr(Expr),
+    If(Expr, Box<(Statement, Option<Statement>)>),
+    Block(Block),
 }
 
 #[derive(Debug, Clone)]
@@ -75,6 +77,7 @@ pub enum Expr {
     Binary(BinOp, Box<(Expr, Expr)>),
     Unary(UnOp, Box<Expr>),
     Var(Ident),
+    Ternary(Box<(Expr, Expr, Expr)>)
 }
 
 #[derive(Debug, Clone, Copy)]
