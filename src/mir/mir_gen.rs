@@ -190,6 +190,50 @@ impl<'l> FunctionGenerator<'l> {
 
                 self.new_block_w_id(break_label);
             },
+            ast::Statement::For { init, cond, post, box body, label } => {
+                match init {
+                    ast::ForInit::Decl(decl) => self.generate_var_decl(decl),
+                    ast::ForInit::Expr(expr) => { self.generate_expr(expr); },
+                    ast::ForInit::None => ()
+                }
+
+                let start_label = self.gen_block_id();
+
+                self.current_block.terminator = mir_def::Terminator::Jump { target: start_label };
+
+                self.new_block_w_id(start_label);
+
+                let continue_label = self.gen_loop_block_id(label, false);
+                let break_label = self.gen_loop_block_id(label, true);
+
+                if let Some(cond) = cond {
+                    let cond = self.generate_expr(cond);
+
+                    let new_block = self.gen_block_id();
+
+                    self.current_block.terminator = mir_def::Terminator::JumpCond {
+                        target: break_label,
+                        fail: new_block,
+                        src1: cond,
+                        src2: mir_def::Val::Num(0),
+                        cond: mir_def::Cond::Equal
+                    };
+
+                    self.new_block_w_id(new_block);
+                }
+
+                self.generate_statement(body);
+
+                self.current_block.terminator = mir_def::Terminator::Jump { target: continue_label };
+
+                self.new_block_w_id(continue_label);
+
+                if let Some(post) = post { self.generate_expr(post); }
+
+                self.current_block.terminator = mir_def::Terminator::Jump { target: start_label };
+
+                self.new_block_w_id(break_label);
+            }
             ast::Statement::Break(label) => {
                 let label = self.gen_loop_block_id(label, true);
                 self.current_block.terminator = mir_def::Terminator::Jump { target: label };
@@ -200,8 +244,6 @@ impl<'l> FunctionGenerator<'l> {
                 self.current_block.terminator = mir_def::Terminator::Jump { target: label };
                 self.new_block();
             },
-
-            ast::Statement::For { .. } => unimplemented!()
         }
     }
 

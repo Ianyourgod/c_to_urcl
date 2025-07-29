@@ -1,12 +1,7 @@
 int main() {
     int a = 0;
-    int b = 4;
-    while (b > 0) {
-        a += b;
-        b -= 1;
-        if (b == 1) {
-            break;
-        }
+    for (int i=0;i<10;i+=1) {
+        a += i;
     }
     return a;
 }

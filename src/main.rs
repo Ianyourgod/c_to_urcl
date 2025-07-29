@@ -18,7 +18,14 @@ fn main() {
 
     let input = std::fs::read_to_string(input_file).unwrap();
 
-    let ast = grammar::ProgramParser::new().parse(&input).unwrap();
+    let ast = grammar::ProgramParser::new().parse(&input);
+    let ast = match ast {
+        Ok(ast) => ast,
+        Err(e) => {
+            println!("{e}");
+            panic!();
+        }
+    };
 
     let ast = semantic_analysis::analyse(ast);
 

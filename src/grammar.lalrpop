@@ -28,13 +28,27 @@ Statement: Statement = {
 OpenStatement: Statement = {
     "if" "(" <c:Expr> ")" <t:Statement> => Statement::If(c, Box::new((t, None))),
     "if" "(" <c:Expr> ")" <t:ClosedStatement> "else" <e:OpenStatement> => Statement::If(c, Box::new((t, Some(e)))),
-    "while" "(" <cond:Expr> ")" <s:OpenStatement> => Statement::While(cond, Box::new(s), 0)
+    "while" "(" <cond:Expr> ")" <s:OpenStatement> => Statement::While(cond, Box::new(s), 0),
+    "do" <s:OpenStatement> "while" "(" <cond:Expr> ")" ";" => Statement::DoWhile(cond, Box::new(s), 0),
+
+    // for
+    "for" "(" <init:ForInit> <cond:Expr> ";" <post:Expr> ")" <stmt:OpenStatement> => Statement::For { init, cond: Some(cond), post: Some(post), body: Box::new(stmt), label: 0 },
+    "for" "(" <init:ForInit> ";" <post:Expr> ")" <stmt:OpenStatement> => Statement::For { init, cond: None, post: Some(post), body: Box::new(stmt), label: 0 },
+    "for" "(" <init:ForInit> <cond:Expr> ";" ")" <stmt:OpenStatement> => Statement::For { init, cond: Some(cond), post: None, body: Box::new(stmt), label: 0 },
+    "for" "(" <init:ForInit> ";" ")" <stmt:OpenStatement> => Statement::For { init, cond: None, post: None, body: Box::new(stmt), label: 0 },
 }
 
 ClosedStatement: Statement = {
     NormalStatement => <>,
     "if" "(" <c:Expr> ")" <t:ClosedStatement> "else" <e:ClosedStatement> => Statement::If(c, Box::new((t, Some(e)))),
-    "while" "(" <cond:Expr> ")" <s:ClosedStatement> => Statement::While(cond, Box::new(s), 0)
+    "while" "(" <cond:Expr> ")" <s:ClosedStatement> => Statement::While(cond, Box::new(s), 0),
+    "do" <s:ClosedStatement> "while" "(" <cond:Expr> ")" ";" => Statement::DoWhile(cond, Box::new(s), 0),
+
+    // for
+    "for" "(" <init:ForInit> <cond:Expr> ";" <post:Expr> ")" <stmt:ClosedStatement> => Statement::For { init, cond: Some(cond), post: Some(post), body: Box::new(stmt), label: 0 },
+    "for" "(" <init:ForInit> ";" <post:Expr> ")" <stmt:ClosedStatement> => Statement::For { init, cond: None, post: Some(post), body: Box::new(stmt), label: 0 },
+    "for" "(" <init:ForInit> <cond:Expr> ";" ")" <stmt:ClosedStatement> => Statement::For { init, cond: Some(cond), post: None, body: Box::new(stmt), label: 0 },
+    "for" "(" <init:ForInit> ";" ")" <stmt:ClosedStatement> => Statement::For { init, cond: None, post: None, body: Box::new(stmt), label: 0 },
 }
 
 NormalStatement: Statement = {
@@ -42,7 +56,13 @@ NormalStatement: Statement = {
     <e:Expr> ";" => Statement::Expr(e),
     Block => Statement::Block(<>),
     "break" ";" => Statement::Break(0),
-    "continue" ";" => Statement::Continue(0)
+    "continue" ";" => Statement::Continue(0),
+}
+
+ForInit: ForInit = {
+    VarDeclaration => ForInit::Decl(<>),
+    <e:Expr> ";" => ForInit::Expr(e),
+    ";" => ForInit::None,
 }
 
 VarDeclaration: VarDeclaration = {

@@ -34,6 +34,8 @@ impl ContextItem {
     }
 }
 
+// TODO! convert this to take a &mut instead of taking ownership and returning a new one
+
 pub struct Analyzer {
     pub tmp_count: u32
 }
@@ -133,10 +135,26 @@ impl Analyzer {
 
                 ast::Statement::DoWhile(cond, Box::new(stmt), label)
             },
+            ast::Statement::For { init, cond, post, body, label } => {
+                let mut context = context.clone();
+                let context = &mut context;
+                
+                let init = match init {
+                    ast::ForInit::Decl(decl) => ast::ForInit::Decl(self.analyze_var_decl(decl, context)),
+                    ast::ForInit::Expr(expr) => ast::ForInit::Expr(self.analyze_expr(expr, context)),
+                    ast::ForInit::None => ast::ForInit::None
+                };
+
+                let cond = cond.map(|c|self.analyze_expr(c, context));
+
+                let post = post.map(|p|self.analyze_expr(p, context));
+
+                let body = Box::new(self.analyze_statement(*body, context));
+
+                ast::Statement::For { init, cond, post, body, label }
+            }
             ast::Statement::Break(_) |
             ast::Statement::Continue(_) => statement,
-
-            ast::Statement::For { .. } => unimplemented!()
         }
     }
 
