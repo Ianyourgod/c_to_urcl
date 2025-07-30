@@ -1,19 +1,73 @@
 BITS == 16
-MINREG 26
-MINHEAP 4096
+MINREG 8
+MINHEAP 16
 RUN ROM
-MINSTACK 16
+MINSTACK 8
 
+IMM $2 0
+IMM $3 0
 CAL .main
 OUT %NUMB $1
 HLT
 .main
+	PSH $2
+	MOV $2 $3
+	ADD $3 $3 1
+	POP $1
+	POP $2
+	PSH $2
+	PSH $1
 	.lbl.gen.1.
-	SETE $7 1 1
-	LSTR $2 1 $7
-	LLOD $7 $2 1
-	AND $7 $7 1
+	PSH 7
+	PSH 2
+	CAL .pow
+	MOV $7 $1
 	LSTR $2 1 $7
 	LLOD $7 $2 1
 	MOV $1 $7
+	MOV $3 $2
+	POP $2
 	RET
+.pow
+	PSH $2
+	MOV $2 $3
+	ADD $3 $3 4
+	POP $1
+	POP $2
+	POP $7
+	LSTR $2 1 $7
+	POP $7
+	LSTR $2 2 $7
+	PSH $2
+	PSH $1
+	.lbl.gen.5.
+	MOV $7 1
+	LSTR $2 3 $7
+	JMP .lbl.gen.6.
+	.lbl.gen.6.
+	LLOD $7 $2 2
+	SSETG $7 $7 0
+	LSTR $2 4 $7
+	LLOD $7 $2 4
+	AND $7 $7 1
+	LSTR $2 4 $7
+	LLOD $7 $2 4
+	BRE .lbl.lbreak.1. $7 0
+	JMP .lbl.gen.8.
+	.lbl.lbreak.1.
+	LLOD $7 $2 3
+	MOV $1 $7
+	MOV $3 $2
+	POP $2
+	RET
+	.lbl.gen.8.
+	LLOD $7 $2 3
+	LLOD $8 $2 1
+	MLT $7 $7 $8
+	LSTR $2 3 $7
+	JMP .lbl.lcont1.
+	.lbl.lcont1.
+	LLOD $7 $2 2
+	SUB $7 $7 1
+	LSTR $2 2 $7
+	JMP .lbl.gen.6.

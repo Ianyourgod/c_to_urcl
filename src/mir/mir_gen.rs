@@ -19,11 +19,11 @@ impl Generator {
     pub fn generate(&mut self, ast: ast::Program) -> mir_def::Program {
         mir_def::Program { 
             functions: 
-                ast.functions.into_iter().map(|f| self.generate_function(f)).collect()
+                ast.functions.into_iter().filter_map(|f| self.generate_function(f)).collect()
         }
     }
 
-    fn generate_function(&mut self, function: ast::FunctionDecl) -> mir_def::Function {
+    fn generate_function(&mut self, function: ast::FunctionDecl) -> Option<mir_def::Function> {
         let fn_gen = FunctionGenerator::new(self);
 
         fn_gen.generate(function)
@@ -64,24 +64,33 @@ impl<'l> FunctionGenerator<'l> {
         }
     }
 
-    pub fn generate(mut self, function: ast::FunctionDecl) -> mir_def::Function {
-        self.generate_block(function.block);
+    pub fn generate(mut self, function: ast::FunctionDecl) -> Option<mir_def::Function> {
+        function.block.map(|block| {
+            self.generate_block(block);
 
-        self.new_block();
-        
-        mir_def::Function { name: function.name, basic_blocks: self.cfg }
+            self.new_block();
+            
+            mir_def::Function { name: function.name, params: function.params, basic_blocks: self.cfg }
+        })
     }
 
     fn generate_block(&mut self, block: ast::Block) {
         for stmt in block.statements {
             match stmt {
                 ast::BlockItem::Declaration(decl) => {
-                    self.generate_var_decl(decl);
+                    self.generate_declaration(decl);
                 },
                 ast::BlockItem::Statement(stmt) => {
                     self.generate_statement(stmt);
                 }
             }
+        }
+    }
+
+    fn generate_declaration(&mut self, decl: ast::Declaration) {
+        match decl {
+            ast::Declaration::Var(v) => self.generate_var_decl(v),
+            ast::Declaration::Fn(_) => ()
         }
     }
 
@@ -533,6 +542,15 @@ impl<'l> FunctionGenerator<'l> {
                 self.new_block_w_id(end_label);
 
                 mir_def::Val::Var(ret)
+            },
+            ast::Expr::FunctionCall(name, exprs) => {
+                let args = exprs.into_iter().map(|e|self.generate_expr(e)).collect();
+
+                let dst = self.gen_tmp_name();
+
+                self.current_block.instructions.push(mir_def::Instruction::FunctionCall { name, args, dst: dst.clone() });
+
+                mir_def::Val::Var(dst)
             }
         }
     }

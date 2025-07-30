@@ -20,7 +20,7 @@ where
 {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         let mut out = format!(
-            "{}\n\nCAL .main\nOUT %NUMB $1\nHLT\n",
+            "{}\n\nIMM $2 0\nIMM $3 0\nCAL .main\nOUT %NUMB $1\nHLT\n",
             self.header_info
         );
 
@@ -95,7 +95,8 @@ where
     },
     Label(GenericBlockID),
     Push(V),
-    Pop(Reg),
+    Pop(V),
+    Call(Ident),
     Ret,
 }
 
@@ -209,8 +210,8 @@ where
             Instr::Push(val) => {
                 format!("PSH {val}")
             },
-            Instr::Pop(reg) => {
-                format!("POP {reg}")
+            Instr::Pop(val) => {
+                format!("POP {val}")
             },
             Instr::Ret => {
                 format!("RET")
@@ -224,6 +225,9 @@ where
             Instr::Branch { label, src1, src2, cond } => {
                 let cond = cond.to_string_branch();
                 format!("{cond} .lbl.{label}. {src1} {src2}")
+            },
+            Instr::Call(name) => {
+                format!("CAL .{name}")
             }
         };
 
@@ -317,6 +321,16 @@ impl HeaderInfo {
             min_heap: 4096,
             min_stack: 16, // idk the stack size of iris... TODO! find the actual stack size
             von_neumann: false // idk if iris can do von neumann but we're just gonna put this as false for now
+        }
+    }
+
+    pub fn generic_16bit() -> Self {
+        Self {
+            bits: 16,
+            min_reg: 8,
+            min_heap: 16, // since *our* stack is on the *heap*, we need some stuff
+            min_stack: 8, // this is basically only used for fn calls
+            von_neumann: false,
         }
     }
 }

@@ -30,6 +30,7 @@ pub struct Program {
 #[derive(Debug, Clone)]
 pub struct Function {
     pub name: Ident,
+    pub params: Vec<Ident>,
     pub basic_blocks: CFG,
 }
 
@@ -88,6 +89,11 @@ pub enum Instruction {
         src: Val,
         dst: Ident
     },
+    FunctionCall {
+        name: Ident,
+        args: Vec<Val>,
+        dst: Ident,
+    }
 }
 
 #[derive(Debug, Clone)]

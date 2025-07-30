@@ -8,16 +8,37 @@ pub Program: Program = {
 };
 
 FunctionDecl: FunctionDecl = {
-    Type <n:Ident> "()" <b:Block> => FunctionDecl::new(n,b)
+    Type <n:Ident> "(" <p:ParamList> ")" <b:Block> => FunctionDecl::new(n,p,Some(b)),
+    Type <n:Ident> "(" <p:ParamList> ")" ";" => FunctionDecl::new(n,p,None)
 };
+
+Comma<T>: Vec<T> = {
+    <mut v:(<T> ",")*> <e:T?> => match e {
+        None => v,
+        Some(e) => {
+            v.push(e);
+            v
+        }
+    }
+};
+
+ParamList: Vec<(Type, String)> = {
+    "void" => Vec::new(),
+    Comma<(Type Ident)> => <>,
+}
 
 Block: Block = {
     "{" <s:BlockItem*> "}" => Block::new(s)
 }
 
+Declaration: Declaration = {
+    VarDeclaration => Declaration::Var(<>),
+    FunctionDecl => Declaration::Fn(<>),
+}
+
 BlockItem: BlockItem = {
     Statement => BlockItem::Statement(<>),
-    VarDeclaration => BlockItem::Declaration(<>)
+    Declaration => BlockItem::Declaration(<>)
 }
 
 Statement: Statement = {
@@ -31,11 +52,7 @@ OpenStatement: Statement = {
     "while" "(" <cond:Expr> ")" <s:OpenStatement> => Statement::While(cond, Box::new(s), 0),
     "do" <s:OpenStatement> "while" "(" <cond:Expr> ")" ";" => Statement::DoWhile(cond, Box::new(s), 0),
 
-    // for
-    "for" "(" <init:ForInit> <cond:Expr> ";" <post:Expr> ")" <stmt:OpenStatement> => Statement::For { init, cond: Some(cond), post: Some(post), body: Box::new(stmt), label: 0 },
-    "for" "(" <init:ForInit> ";" <post:Expr> ")" <stmt:OpenStatement> => Statement::For { init, cond: None, post: Some(post), body: Box::new(stmt), label: 0 },
-    "for" "(" <init:ForInit> <cond:Expr> ";" ")" <stmt:OpenStatement> => Statement::For { init, cond: Some(cond), post: None, body: Box::new(stmt), label: 0 },
-    "for" "(" <init:ForInit> ";" ")" <stmt:OpenStatement> => Statement::For { init, cond: None, post: None, body: Box::new(stmt), label: 0 },
+    "for" "(" <init:ForInit> <cond:Expr?> ";" <post:Expr?> ")" <stmt:OpenStatement> => Statement::For { init, cond, post, body: Box::new(stmt), label: 0 },
 }
 
 ClosedStatement: Statement = {
@@ -44,11 +61,7 @@ ClosedStatement: Statement = {
     "while" "(" <cond:Expr> ")" <s:ClosedStatement> => Statement::While(cond, Box::new(s), 0),
     "do" <s:ClosedStatement> "while" "(" <cond:Expr> ")" ";" => Statement::DoWhile(cond, Box::new(s), 0),
 
-    // for
-    "for" "(" <init:ForInit> <cond:Expr> ";" <post:Expr> ")" <stmt:ClosedStatement> => Statement::For { init, cond: Some(cond), post: Some(post), body: Box::new(stmt), label: 0 },
-    "for" "(" <init:ForInit> ";" <post:Expr> ")" <stmt:ClosedStatement> => Statement::For { init, cond: None, post: Some(post), body: Box::new(stmt), label: 0 },
-    "for" "(" <init:ForInit> <cond:Expr> ";" ")" <stmt:ClosedStatement> => Statement::For { init, cond: Some(cond), post: None, body: Box::new(stmt), label: 0 },
-    "for" "(" <init:ForInit> ";" ")" <stmt:ClosedStatement> => Statement::For { init, cond: None, post: None, body: Box::new(stmt), label: 0 },
+    "for" "(" <init:ForInit> <cond:Expr?> ";" <post:Expr?> ")" <stmt:ClosedStatement> => Statement::For { init, cond, post, body: Box::new(stmt), label: 0 },
 }
 
 NormalStatement: Statement = {
@@ -70,8 +83,8 @@ VarDeclaration: VarDeclaration = {
     Type <n:Ident> ";" => VarDeclaration::new(Rc::new(n), None),
 }
 
-Type: () = {
-    "int"
+Type: Type = {
+    "int" => Type::Int,
 }
 
 Expr: Expr = {
@@ -196,7 +209,8 @@ Term: Expr = {
     "+"? <n:Num> => Expr::Number(n),
     <o:UnOp> <t: Term> => Expr::Unary(o, Box::new(t)),
     "(" <Expr> ")",
-    Ident => Expr::Var(Rc::new(<>))
+    Ident => Expr::Var(Rc::new(<>)),
+    <n:Ident> "(" <p:Comma<Expr>> ")" => Expr::FunctionCall(n.into(), p),
 };
 
 UnOp: UnOp = {

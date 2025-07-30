@@ -14,22 +14,25 @@ pub struct Context {
 pub struct ContextItem {
     pub ident: Ident,
     pub from_this_scope: bool,
+    pub has_linkage: bool,
 }
 
 impl Clone for ContextItem {
     fn clone(&self) -> Self {
         Self {
             ident: self.ident.clone(),
-            from_this_scope: false
+            from_this_scope: false,
+            has_linkage: self.has_linkage,
         }
     }
 }
 
 impl ContextItem {
-    pub fn new(name: Ident) -> Self {
+    pub fn new(ident: Ident, has_linkage: bool) -> Self {
         Self {
-            ident: name,
+            ident,
             from_this_scope: true,
+            has_linkage
         }
     }
 }
@@ -60,44 +63,66 @@ impl Analyzer {
 
     fn analyze_function(&mut self, function: ast::FunctionDecl, context: &mut Context) -> ast::FunctionDecl {
         let global = true;
-        let name = self.add_new_name(function.name, context, !global);
+        let name = self.add_new_name(function.name, context, global);
+
+        let mut context = context.clone();
+        let context = &mut context;
+
+        let params = function.params.into_iter().map(|param| {
+            self.add_new_name(param, context, false)
+        }).collect();
 
         ast::FunctionDecl {
             name,
-            block: self.analyze_block(function.block, context)
+            params,
+            block: function.block.map(|b|self.analyze_block(b, context))
+        }
+    }
+
+    fn analyze_decl(&mut self, decl: ast::Declaration, is_top_level: bool, context: &mut Context) -> ast::Declaration {
+        match decl {
+            ast::Declaration::Var(var_decl) => {
+                ast::Declaration::Var(self.analyze_var_decl(var_decl, context))
+            },
+            ast::Declaration::Fn(fn_decl) => {
+                if fn_decl.block.is_some() && !is_top_level {
+                    panic!("No function scope functions!!!!!");
+                }
+
+                ast::Declaration::Fn(self.analyze_function(fn_decl, context))
+            }
         }
     }
 
     fn analyze_block(&mut self, block: ast::Block, context: &mut Context) -> ast::Block {
-        let mut context = context.clone();
         ast::Block { statements: block.statements.into_iter().map(|stmt| {
             match stmt {
                 ast::BlockItem::Declaration(decl) => {
-                    ast::BlockItem::Declaration(self.analyze_var_decl(decl, &mut context))
+                    ast::BlockItem::Declaration(self.analyze_decl(decl, false, context))
                 },
                 ast::BlockItem::Statement(stmt) => {
-                    ast::BlockItem::Statement(self.analyze_statement(stmt, &mut context))
+                    ast::BlockItem::Statement(self.analyze_statement(stmt, context))
                 }
             }
         }).collect() }
     }
 
-    fn add_new_name(&mut self, old_name: Ident, context: &mut Context, gen_new_name: bool) -> Ident {
+    fn add_new_name(&mut self, old_name: Ident, context: &mut Context, has_linkage: bool) -> Ident {
         if let Some(item) = context.mappings.get(&old_name) && item.from_this_scope {
             panic!("Cannot redefine {old_name}");
         }
 
-        let name = if gen_new_name {
+        let name = if !has_linkage {
             self.gen_new_ident(&old_name)
         } else {
             old_name.clone()
         };
-        context.mappings.insert(old_name, ContextItem::new(name.clone()));
+        context.mappings.insert(old_name, ContextItem::new(name.clone(), has_linkage));
         name
     }
 
     fn analyze_var_decl(&mut self, var_decl: ast::VarDeclaration, context: &mut Context) -> ast::VarDeclaration {
-        let name = self.add_new_name(var_decl.name, context, true);
+        let name = self.add_new_name(var_decl.name, context, false);
 
         ast::VarDeclaration::new(name, var_decl.expr.map(|expr|self.analyze_expr(expr, context)))
     }
@@ -119,7 +144,7 @@ impl Analyzer {
                 ast::Statement::If(cond, Box::new((then, else_stmt)))
             },
             ast::Statement::Block(block) => {
-                ast::Statement::Block(self.analyze_block(block, context))
+                ast::Statement::Block(self.analyze_block(block, &mut context.clone()))
             },
             ast::Statement::While(cond, box stmt, label) => {
                 let cond = self.analyze_expr(cond, context);
@@ -158,7 +183,15 @@ impl Analyzer {
         }
     }
 
-    fn analyze_expr(&mut self, expr: ast::Expr, context: &mut Context) -> ast::Expr {
+    fn get_ctx_item<'a>(&self, old_ident: &Ident, context: &'a Context) -> &'a ContextItem {
+        if let Some(n) = context.mappings.get(old_ident) {
+            n
+        } else {
+            panic!("Unknown item: {old_ident}");
+        }
+    } 
+
+    fn analyze_expr(&mut self, expr: ast::Expr, context: &Context) -> ast::Expr {
         match expr {
             ast::Expr::Binary(ast::BinOp::Assign(assign_type), box (var, val)) => {
                 let var = self.analyze_expr(var, context);
@@ -183,11 +216,7 @@ impl Analyzer {
                 ast::Expr::Unary(op, Box::new(inner))
             },
             ast::Expr::Var(name) => {
-                let name = if let Some(n) = context.mappings.get(&name) {
-                    n
-                } else {
-                    panic!("Unknown var: {name}");
-                };
+                let name = self.get_ctx_item(&name, context);
 
                 ast::Expr::Var(name.ident.clone())
             },
@@ -197,6 +226,13 @@ impl Analyzer {
                 let r = self.analyze_expr(r, context);
 
                 ast::Expr::Ternary(Box::new((cond, l, r)))
+            },
+            ast::Expr::FunctionCall(name, exprs) => {
+                let name = self.get_ctx_item(&name, context);
+
+                let exprs = exprs.into_iter().map(|e|self.analyze_expr(e, context)).collect();
+
+                ast::Expr::FunctionCall(name.ident.clone(), exprs)
             },
 
             ast::Expr::Number(_) => expr,

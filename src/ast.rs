@@ -20,13 +20,15 @@ impl Program {
 #[derive(Debug, Clone)]
 pub struct FunctionDecl {
     pub name: Ident,
-    pub block: Block,
+    pub params: Vec<Ident>,
+    pub block: Option<Block>,
 }
 
 impl FunctionDecl {
-    pub fn new(name: String, block: Block) -> Self {
+    pub fn new(name: String, params: Vec<(Type, String)>, block: Option<Block>) -> Self {
         Self {
             name: Rc::new(name),
+            params: params.into_iter().map(|(_, s)|Rc::new(s)).collect(),
             block
         }
     }
@@ -46,9 +48,15 @@ impl Block {
 }
 
 #[derive(Debug, Clone)]
+pub enum Declaration {
+    Var(VarDeclaration),
+    Fn(FunctionDecl)
+}
+
+#[derive(Debug, Clone)]
 pub enum BlockItem {
     Statement(Statement),
-    Declaration(VarDeclaration),
+    Declaration(Declaration),
 }
 
 #[derive(Debug, Clone)]
@@ -95,7 +103,8 @@ pub enum Expr {
     Binary(BinOp, Box<(Expr, Expr)>),
     Unary(UnOp, Box<Expr>),
     Var(Ident),
-    Ternary(Box<(Expr, Expr, Expr)>)
+    Ternary(Box<(Expr, Expr, Expr)>),
+    FunctionCall(Ident, Vec<Expr>)
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -141,4 +150,10 @@ pub enum AssignType {
     BitwiseAnd,
     BitwiseOr,
     BitwiseXor
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub enum Type {
+    Int,
+    Fn(usize),
 }

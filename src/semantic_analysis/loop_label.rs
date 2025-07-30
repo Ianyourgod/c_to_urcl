@@ -18,7 +18,7 @@ impl LoopLabeler {
     }
 
     fn label_function(&mut self, function: &mut ast::FunctionDecl) {
-        self.label_block(&mut function.block);
+        function.block.as_mut().map(|b|self.label_block(b));
     }
 
     fn label_block(&mut self, block: &mut ast::Block) {

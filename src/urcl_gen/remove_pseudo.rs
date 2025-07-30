@@ -33,13 +33,25 @@ impl RemovePseudo {
     fn generate_function(&mut self, function: asm::Function<asm::PVal>) -> asm::Function<asm::Val> {
         self.stack_offset = 0;
         
-        let mut instructions = Vec::with_capacity(function.instructions.len());
+        let mut instructions = Vec::with_capacity(function.instructions.len() + 5);
+
+        instructions.push(asm::Instr::Push(asm::Reg::val(2)));
+        instructions.push(asm::Instr::Mov { src: asm::Reg::val(3), dst: asm::Reg::val(2) });
+        instructions.push(asm::Instr::Binary { binop: asm::Binop::Add, src1: asm::Reg::val(3), src2: asm::Val::Imm(0), dst: asm::Reg::val(3) });
 
         function.instructions.into_iter().for_each(|i|self.generate_instruction(i, &mut instructions));
 
+        *instructions.get_mut(2).unwrap() =
+            asm::Instr::Binary {
+                binop: asm::Binop::Add,
+                src1: asm::Reg::val(3),
+                src2: asm::Val::Imm(self.stack_offset as i32),
+                dst: asm::Reg::val(3)
+            };
+
         asm::Function {
             name: function.name,
-            instructions: instructions
+            instructions
         }
     }
 
@@ -95,9 +107,20 @@ impl RemovePseudo {
 
                 instructions.push(asm::Instr::Branch { label, src1, src2, cond })
             }
+            asm::Instr::Pop(dst) => {
+                let (dst, idx) = self.convert_pval_dst(dst, PVAL_DST);
 
-            asm::Instr::Pop(r) => instructions.push(asm::Instr::Pop(r)),
-            asm::Instr::Ret => instructions.push(asm::Instr::Ret),
+                instructions.push(asm::Instr::Pop(dst));
+
+                if let Some(idx) = idx { self.pval_dst_write(PVAL_DST, idx, instructions); }
+            },
+
+            asm::Instr::Call(n) => instructions.push(asm::Instr::Call(n)),
+            asm::Instr::Ret => {
+                instructions.push(asm::Instr::Mov { src: asm::Reg::val(2), dst: asm::Reg::val(3) });
+                instructions.push(asm::Instr::Pop(asm::Reg::val(2)));
+                instructions.push(asm::Instr::Ret)
+            },
             asm::Instr::Jmp { label } => instructions.push(asm::Instr::Jmp { label }),
             asm::Instr::Label(label) => instructions.push(asm::Instr::Label(label)),
         }

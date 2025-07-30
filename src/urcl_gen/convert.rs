@@ -5,9 +5,18 @@ use crate::mir::mir_def;
 
 pub fn mir_to_asm(mir: mir_def::Program) -> asm::Program<asm::PVal> {
     asm::Program {
-        header_info: asm::HeaderInfo::iris(),
+        header_info: asm::HeaderInfo::generic_16bit(),
         functions: mir.functions.into_iter().map(|func| {
             let mut instructions = Vec::new();
+
+            // TODO! fix this instead of using this workaround (basically, since we pop arguments, we cant push the bp PLUS THE RETURN ADDR IS THERE (!!!!), so to workaround we just pop it then push it after)
+            instructions.push(asm::Instr::Pop(asm::Reg::pval(1)));
+            instructions.push(asm::Instr::Pop(asm::Reg::pval(2)));
+            for param in func.params {
+                instructions.push(asm::Instr::Pop(asm::PVal::Var(param)))
+            }
+            instructions.push(asm::Instr::Push(asm::Reg::pval(2)));
+            instructions.push(asm::Instr::Push(asm::Reg::pval(1)));
 
             cfg_to_asm(func.basic_blocks, &mut instructions);
             
@@ -99,6 +108,18 @@ fn instr_to_asm(instr: mir_def::Instruction, instructions: &mut Vec<asm::Instr<a
             instructions.push(
                 asm::Instr::Mov { src, dst: asm::PVal::Var(dst) }
             );
+        },
+        mir_def::Instruction::FunctionCall { name, args, dst } => {
+            // TODO! maybe for iris mode, reserve a few registers for arguments so we can avoid pushing/popping everything?
+            
+            for arg in args.into_iter().rev() {
+                let arg = val_to_asm(arg, instructions);
+                instructions.push(asm::Instr::Push(arg));
+            }
+
+            instructions.push(asm::Instr::Call(name));
+
+            instructions.push(asm::Instr::Mov { src: asm::Reg::pval(1), dst: asm::PVal::Var(dst) });
         }
     }
 }
