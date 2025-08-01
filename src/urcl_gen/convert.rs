@@ -6,23 +6,34 @@ use crate::mir::mir_def;
 pub fn mir_to_asm(mir: mir_def::Program) -> asm::Program<asm::PVal> {
     asm::Program {
         header_info: asm::HeaderInfo::generic_16bit(),
-        functions: mir.functions.into_iter().map(|func| {
-            let mut instructions = Vec::new();
+        top_level_items: mir.top_level.into_iter().map(|tl| {
+            match tl {
+                mir_def::TopLevel::Fn(func) => {
+                    let mut instructions = Vec::new();
 
-            // TODO! fix this instead of using this workaround (basically, since we pop arguments, we cant push the bp PLUS THE RETURN ADDR IS THERE (!!!!), so to workaround we just pop it then push it after)
-            instructions.push(asm::Instr::Pop(asm::Reg::pval(1)));
-            instructions.push(asm::Instr::Pop(asm::Reg::pval(2)));
-            for param in func.params {
-                instructions.push(asm::Instr::Pop(asm::PVal::Var(param)))
-            }
-            instructions.push(asm::Instr::Push(asm::Reg::pval(2)));
-            instructions.push(asm::Instr::Push(asm::Reg::pval(1)));
+                    // TODO! fix this instead of using this workaround (basically, since we pop arguments, we cant push the bp PLUS THE RETURN ADDR IS THERE (!!!!), so to workaround we just pop it then push it after)
+                    instructions.push(asm::Instr::Pop(asm::Reg::pval(1)));
+                    instructions.push(asm::Instr::Pop(asm::Reg::pval(2)));
+                    for param in func.params {
+                        instructions.push(asm::Instr::Pop(asm::PVal::Var(param)))
+                    }
+                    instructions.push(asm::Instr::Push(asm::Reg::pval(2)));
+                    instructions.push(asm::Instr::Push(asm::Reg::pval(1)));
 
-            cfg_to_asm(func.basic_blocks, &mut instructions);
-            
-            asm::Function {
-                name: func.name,
-                instructions
+                    cfg_to_asm(func.basic_blocks, &mut instructions);
+                    
+                    asm::TopLevel::Fn(asm::Function {
+                        name: func.name,
+                        instructions
+                    })
+                },
+                mir_def::TopLevel::Var(static_var) => {
+                    asm::TopLevel::StaticVar {
+                        name: static_var.name,
+                        global: static_var.global,
+                        init: static_var.init
+                    }
+                }
             }
         }).collect()
     }

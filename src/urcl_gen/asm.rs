@@ -11,7 +11,7 @@ where
     V: Display
 {
     pub header_info: HeaderInfo,
-    pub functions: Vec<Function<V>>,
+    pub top_level_items: Vec<TopLevel<V>>,
 }
 
 impl<V> Display for Program<V>
@@ -24,11 +24,42 @@ where
             self.header_info
         );
 
-        for func in &self.functions {
+        for func in &self.top_level_items {
             out.push_str(&func.to_string());
         }
 
         f.write_str(&out)
+    }
+}
+
+#[derive(Debug, Clone)]
+pub enum TopLevel<V>
+where 
+    V: Display
+{
+    Fn(Function<V>),
+    StaticVar {
+        name: Ident,
+        global: bool,
+        init: i32,
+    }
+}
+
+impl<V> Display for TopLevel<V>
+where 
+    V: Display
+{
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            TopLevel::Fn(func) => func.fmt(f),
+            TopLevel::StaticVar { name, global: _global, init } => {
+                f.write_str(".")?;
+                f.write_str(name.as_str())?;
+                f.write_str("\n\tDW ")?;
+                f.write_str(&init.to_string())?;
+                f.write_str("\n")
+            }
+        }
     }
 }
 
@@ -75,14 +106,14 @@ where
         dst: V,
     },
     LLod {
-        src: Reg,
+        src: V,
         dst: Reg,
         offset: V,
     },
     LStr {
         src: V,
         offset: V,
-        dst: Reg,
+        dst: V,
     },
     Jmp {
         label: GenericBlockID,
@@ -235,17 +266,19 @@ where
     }
 }
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone)]
 pub enum Val {
     Imm(i32),
     Reg(Reg),
+    Label(Ident),
 }
 
 impl Display for Val {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         let s = match self {
-            Val::Imm(n) => n.to_string(),
-            Val::Reg(r) => r.to_string(),
+            Val::Imm(n) => &n.to_string(),
+            Val::Reg(r) => &r.to_string(),
+            Val::Label(l) => &(".".to_string() + l.as_str())
         };
 
         f.write_str(&s)
@@ -280,14 +313,16 @@ pub enum PVal {
     Imm(i32),
     Reg(Reg),
     Var(Ident),
+    Label(Ident),
 }
 
 impl Display for PVal {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         let s = match self {
-            PVal::Imm(n) => n.to_string(),
-            PVal::Reg(r) => r.to_string(),
-            PVal::Var(s) => (**s).clone(),
+            PVal::Imm(n) => &n.to_string(),
+            PVal::Reg(r) => &r.to_string(),
+            PVal::Var(s) => s.as_str(),
+            PVal::Label(l) => &(".".to_string() + l.as_str()),
         };
 
         f.write_str(&s)

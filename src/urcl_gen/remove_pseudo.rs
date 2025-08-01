@@ -1,32 +1,46 @@
 use std::collections::HashMap;
 
+use crate::semantic_analysis::type_check::{IdentifierAttrs, SymbolTable};
 use crate::urcl_gen::asm;
 use crate::mir::mir_def::Ident;
 
-pub fn fix_pvals(program: asm::Program<asm::PVal>) -> asm::Program<asm::Val> {
-    let mut r = RemovePseudo::new();
+pub fn fix_pvals(program: asm::Program<asm::PVal>, symbol_table: &SymbolTable) -> asm::Program<asm::Val> {
+    let mut r = RemovePseudo::new(symbol_table);
 
     r.generate_program(program)
 }
 
 #[derive(Debug, Clone)]
-struct RemovePseudo {
-    vars: HashMap<Ident, u32>,
-    stack_offset: u32
+enum VarPosition {
+    Label(Ident),
+    Stack(u32),
 }
 
-impl RemovePseudo {
-    pub fn new() -> Self {
+#[derive(Debug, Clone)]
+struct RemovePseudo<'a> {
+    vars: HashMap<Ident, VarPosition>,
+    stack_offset: u32,
+    symbol_table: &'a SymbolTable
+}
+
+impl<'a> RemovePseudo<'a> {
+    pub fn new(symbol_table: &'a SymbolTable) -> Self {
         Self {
             vars: HashMap::new(),
             stack_offset: 0,
+            symbol_table,
         }
     }
 
     pub fn generate_program(&mut self, program: asm::Program<asm::PVal>) -> asm::Program<asm::Val> {
         asm::Program {
             header_info: program.header_info,
-            functions: program.functions.into_iter().map(|f| self.generate_function(f)).collect()
+            top_level_items: program.top_level_items.into_iter().map(|f| {
+                match f {
+                    asm::TopLevel::Fn(f) => asm::TopLevel::Fn(self.generate_function(f)),
+                    asm::TopLevel::StaticVar { name, global, init } => asm::TopLevel::StaticVar { name, global, init }
+                }
+            }).collect()
         }
     }
 
@@ -87,12 +101,20 @@ impl RemovePseudo {
                 if let Some(idx) = idx { self.pval_dst_write(PVAL_DST, idx, instructions); }
             },
             asm::Instr::LLod { src, dst, offset } => {
-                let offset = self.convert_pval_src(offset, 7, instructions);
+                let offset = self.convert_pval_src(offset, PVAL_SRC1, instructions);
+                let src = self.convert_pval_src(src, PVAL_SRC2, instructions);
+
                 instructions.push(asm::Instr::LLod { src, dst, offset })
             },
             asm::Instr::LStr { src, dst, offset } => {
-                let offset = self.convert_pval_src(offset, 7, instructions);
+                let offset = self.convert_pval_src(offset, PVAL_SRC2, instructions);
                 let src = self.convert_pval_src(src, PVAL_SRC1, instructions);
+
+                let dst = match dst {
+                    asm::PVal::Reg(r) => asm::Val::Reg(r),
+                    asm::PVal::Label(l) => asm::Val::Label(l),
+                    _ => unreachable!()
+                };
 
                 instructions.push(asm::Instr::LStr { src, dst, offset })
             },
@@ -130,40 +152,77 @@ impl RemovePseudo {
         match pval {
             asm::PVal::Imm(n) => asm::Val::Imm(n),
             asm::PVal::Reg(r) => asm::Val::Reg(r),
+            asm::PVal::Label(l) => asm::Val::Label(l),
             asm::PVal::Var(v) => {
-                let v = *self.vars.entry(v).or_insert_with(|| {
-                    self.stack_offset += 1;
-                    self.stack_offset
-                }) as i32;
+                let v = self.vars.entry(v.clone()).or_insert_with(|| {
+                    let entry = self.symbol_table.get(&v).unwrap();
 
-                // now we need to lod it
-                instructions.push(asm::Instr::LLod { src: asm::Reg::new(2), dst: asm::Reg::new(load_to), offset: asm::Val::Imm(v) });
+                    match entry.attrs {
+                        IdentifierAttrs::Static { .. } => {
+                            VarPosition::Label(v)
+                        }
+                        IdentifierAttrs::Fn { .. } |
+                        IdentifierAttrs::Local => unreachable!()
+                    }
+                });
+
+                match v {
+                    VarPosition::Stack(n) => {
+                        instructions.push(asm::Instr::LLod { src: asm::Reg::val(2), dst: asm::Reg::new(load_to), offset: asm::Val::Imm(*n as i32) });
+                    },
+                    VarPosition::Label(l) => {
+                        instructions.push(asm::Instr::LLod { src: asm::Val::Label(l.clone()), dst: asm::Reg::new(load_to), offset: asm::Val::Imm(0) });
+                    }
+                }
 
                 asm::Reg::val(load_to)
             }
         }
     }
 
-    fn convert_pval_dst(&mut self, pval: asm::PVal, write_to: u8) -> (asm::Val, Option<i32>) {
+    fn convert_pval_dst(&mut self, pval: asm::PVal, write_to: u8) -> (asm::Val, Option<VarPosition>) {
         (match pval {
             asm::PVal::Imm(n) => asm::Val::Imm(n),
             asm::PVal::Reg(r) => asm::Val::Reg(r),
+            asm::PVal::Label(l) => asm::Val::Label(l),
             asm::PVal::Var(v) => {
-                let v = *self.vars.entry(v).or_insert_with(|| {
-                    self.stack_offset += 1;
-                    self.stack_offset
-                }) as i32;
+                let v = self.vars.entry(v.clone()).or_insert_with(|| {
+                    let entry = self.symbol_table.get(&v).unwrap();
 
-                return (asm::Reg::val(write_to), Some(v));
-            }
+                    match entry.attrs {
+                        IdentifierAttrs::Local => {
+                            self.stack_offset += 1;
+                            VarPosition::Stack(self.stack_offset)
+                        },
+                        IdentifierAttrs::Static { .. } => {
+                            VarPosition::Label(v)
+                        }
+                        IdentifierAttrs::Fn { .. } => unreachable!()
+                    }
+                });
+
+                return (asm::Reg::val(write_to), Some(v.clone()));
+            },
         }, None)
     }
 
-    fn pval_dst_write(&mut self, written_to: u8, idx: i32, instructions: &mut Vec<asm::Instr<asm::Val>>) {
-        instructions.push(asm::Instr::LStr {
-            src: asm::Reg::val(written_to),
-            dst: asm::Reg::new(2),
-            offset: asm::Val::Imm(idx)
-        });
+    fn pval_dst_write(&mut self, written_to: u8, idx: VarPosition, instructions: &mut Vec<asm::Instr<asm::Val>>) {
+        match idx {
+            VarPosition::Label(l) => {
+                instructions.push(asm::Instr::LStr {
+                    src: asm::Reg::val(written_to),
+                    dst: asm::Val::Label(l),
+                    offset: asm::Val::Imm(0)
+                });
+            },
+            VarPosition::Stack(n) => {
+                instructions.push(asm::Instr::LStr {
+                    src: asm::Reg::val(written_to),
+                    dst: asm::Reg::val(2),
+                    offset: asm::Val::Imm(n as i32)
+                });
+            }
+        }
+        
     }
 }

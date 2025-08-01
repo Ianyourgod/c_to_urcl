@@ -2,9 +2,9 @@ use crate::ast::*;
 
 mod name_analysis;
 mod loop_label;
-mod type_check;
+pub mod type_check;
 
-pub fn analyse(program: Program) -> Program {
+pub fn analyse(program: Program) -> (Program, type_check::SymbolTable) {
     let na = name_analysis::Analyzer::new();
     let mut ast = na.analyze(program);
 
@@ -12,7 +12,7 @@ pub fn analyse(program: Program) -> Program {
     ll.label(&mut ast);
 
     let tc = type_check::TypeChecker::new();
-    let (ast, _symbol_table) = tc.typecheck(ast);
+    let (ast, symbol_table) = tc.typecheck(ast);
 
-    ast
+    (ast, symbol_table)
 }

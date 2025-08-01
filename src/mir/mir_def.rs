@@ -24,14 +24,29 @@ impl Display for GenericBlockID {
 
 #[derive(Debug, Clone)]
 pub struct Program {
-    pub functions: Vec<Function>,
+    pub top_level: Vec<TopLevel>,
+}
+
+#[derive(Debug, Clone)]
+pub enum TopLevel {
+    Fn(Function),
+    Var(StaticVariable)
 }
 
 #[derive(Debug, Clone)]
 pub struct Function {
     pub name: Ident,
+    #[allow(unused)]
+    pub global: bool,
     pub params: Vec<Ident>,
     pub basic_blocks: CFG,
+}
+
+#[derive(Debug, Clone)]
+pub struct StaticVariable {
+    pub name: Ident,
+    pub global: bool,
+    pub init: i32,
 }
 
 #[derive(Debug, Clone)]

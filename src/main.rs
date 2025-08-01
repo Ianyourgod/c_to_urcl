@@ -27,13 +27,13 @@ fn main() {
         }
     };
 
-    let ast = semantic_analysis::analyse(ast);
+    let (ast, mut symbol_table) = semantic_analysis::analyse(ast);
 
-    let mir = mir::generate_mir(ast);
+    let mir = mir::generate_mir(ast, &mut symbol_table);
 
     //println!("{:#?}", mir);
 
-    let asm = urcl_gen::mir_to_asm(mir);
+    let asm = urcl_gen::mir_to_asm(mir, &symbol_table);
 
     write_to_file(&asm.to_string(), "output.urcl");
 }

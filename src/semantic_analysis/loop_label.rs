@@ -14,7 +14,14 @@ impl LoopLabeler {
     }
 
     pub fn label(&mut self, program: &mut ast::Program) {
-        program.functions.iter_mut().for_each(|f|self.label_function(f));
+        program.top_level_items.iter_mut().for_each(|f|{
+            match f {
+                &mut ast::Declaration::Fn(ref mut f) => {
+                    self.label_function(f);
+                },
+                &mut ast::Declaration::Var(_) => ()
+            }
+        });
     }
 
     fn label_function(&mut self, function: &mut ast::FunctionDecl) {

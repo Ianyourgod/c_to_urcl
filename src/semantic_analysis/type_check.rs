@@ -5,22 +5,42 @@ use crate::Ident;
 
 #[derive(Debug, Clone)]
 pub struct SymbolTable {
-    table: HashMap<Ident, SymbolTableEntry>
+    pub table: HashMap<Ident, SymbolTableEntry>
 }
 
 #[derive(Debug, Clone)]
 pub struct SymbolTableEntry {
     pub ty: ast::Type,
-    pub defined: bool
+    pub attrs: IdentifierAttrs,
 }
 
 impl SymbolTableEntry {
-    pub fn new(ty: ast::Type, defined: bool) -> Self {
+    pub fn new(ty: ast::Type, attrs: IdentifierAttrs) -> Self {
         Self {
             ty,
-            defined
+            attrs
         }
     }
+}
+
+#[derive(Debug, Clone, Copy)]
+pub enum IdentifierAttrs {
+    Fn {
+        defined: bool,
+        global: bool,
+    },
+    Static {
+        init: InitialValue,
+        global: bool,
+    },
+    Local
+}
+
+#[derive(Debug, Clone, Copy)]
+pub enum InitialValue {
+    Tentative,
+    Initial(i32),
+    NoInit,
 }
 
 impl SymbolTable {
@@ -34,7 +54,7 @@ impl SymbolTable {
         self.table.insert(name, entry)
     }
 
-    pub fn get(&mut self, name: &Ident) -> Option<&SymbolTableEntry> {
+    pub fn get(&self, name: &Ident) -> Option<&SymbolTableEntry> {
         self.table.get(name)
     }
 }
@@ -52,8 +72,17 @@ impl TypeChecker {
 
     pub fn typecheck(mut self, program: ast::Program) -> (ast::Program, SymbolTable) {
         let program = ast::Program {
-            functions:
-                program.functions.into_iter().map(|f|self.typecheck_function(f)).collect()
+            top_level_items:
+                program.top_level_items.into_iter().map(|f|{
+                    match f {
+                        ast::Declaration::Fn(f) => {
+                            ast::Declaration::Fn(self.typecheck_function(f))
+                        },
+                        ast::Declaration::Var(v) => {
+                            ast::Declaration::Var(self.typecheck_file_scope_var_decl(v))
+                        }
+                    }
+                }).collect()
         };
 
         (program, self.symbol_table)
@@ -62,22 +91,35 @@ impl TypeChecker {
     fn typecheck_function(&mut self, mut function: ast::FunctionDecl) -> ast::FunctionDecl {
         let fn_type = ast::Type::Fn(function.params.len());
         let has_body = function.block.is_some();
+        let mut global = function.storage_class != Some(ast::StorageClass::Static);
 
         let already_defined = if let Some(old_entry) = self.symbol_table.get(&function.name) {
             if old_entry.ty != fn_type {
                 panic!("Invalid function declaration");
             }
-            if old_entry.defined && has_body {
+            let (old_defined, old_global) = if let IdentifierAttrs::Fn { defined, global } = old_entry.attrs { (defined, global) } else { unreachable!() };
+            if old_defined && has_body {
                 panic!("Function is defined more than once");
             }
-            old_entry.defined
+
+            if old_global && function.storage_class == Some(ast::StorageClass::Static) {
+                panic!("Static function declaration of {} follows non-static declaration", function.name);
+            }
+            global = old_global;
+
+            old_defined
         } else { false };
 
-        self.symbol_table.insert(function.name.clone(), SymbolTableEntry::new(fn_type, already_defined || has_body));
+        let attrs = IdentifierAttrs::Fn {
+            defined: already_defined || has_body,
+            global
+        };
+        self.symbol_table.insert(function.name.clone(), SymbolTableEntry::new(fn_type, attrs));
 
         function.block = function.block.map(|block| {
+            let attrs = IdentifierAttrs::Local;
             for param in &function.params {
-                self.symbol_table.insert(param.clone(), SymbolTableEntry::new(ast::Type::Int, true));
+                self.symbol_table.insert(param.clone(), SymbolTableEntry::new(ast::Type::Int, attrs));
             }
 
             self.typecheck_block(block)
@@ -86,8 +128,85 @@ impl TypeChecker {
         function
     }
 
+    fn typecheck_file_scope_var_decl(&mut self, var_decl: ast::VarDeclaration) -> ast::VarDeclaration {
+        let (mut initial_value, init_is_const) = if let Some(ast::Expr::Number(n)) = &var_decl.expr {
+            (InitialValue::Initial(*n), true)
+        } else if let None = var_decl.expr {
+            (if var_decl.storage_class == Some(ast::StorageClass::Extern) {
+                InitialValue::NoInit
+            } else {
+                InitialValue::Tentative
+            }, false)
+        } else {
+            panic!("Non-constant static init");
+        };
+
+        let mut global = var_decl.storage_class != Some(ast::StorageClass::Static);
+
+        if let Some(old_entry) = self.symbol_table.get(&var_decl.name) {
+            if let ast::Type::Fn(_) = old_entry.ty {
+                panic!("Function redeclared as a variable!");
+            }
+
+            let (old_init, old_global) = if let IdentifierAttrs::Static { init, global } = old_entry.attrs { (init, global) } else { unreachable!() };
+
+            if var_decl.storage_class == Some(ast::StorageClass::Extern) {
+                global = old_global;
+            } else if old_global != global {
+                panic!("Conflicting variable linkage with variable {}", var_decl.name);
+            }
+
+            if let InitialValue::Initial(_) = old_init {
+                if init_is_const {
+                    panic!("Conflicting file scope variable definitions with variable {}", var_decl.name);
+                } else {
+                    initial_value = old_init;
+                }
+            } else if !init_is_const && let InitialValue::Tentative = old_init {
+                initial_value = old_init;
+            }
+        }
+
+        let attrs = IdentifierAttrs::Static { init: initial_value, global };
+        self.symbol_table.insert(var_decl.name.clone(), SymbolTableEntry::new(ast::Type::Int, attrs));
+
+        var_decl
+    }
+
     fn typecheck_var_decl(&mut self, mut var_decl: ast::VarDeclaration) -> ast::VarDeclaration {
-        self.symbol_table.insert(var_decl.name.clone(), SymbolTableEntry::new(ast::Type::Int, var_decl.expr.is_some()));
+        if var_decl.storage_class == Some(ast::StorageClass::Extern) {
+            if var_decl.expr.is_some() {
+                panic!("Cannot have init on local extern variable declaration");
+            }
+            if let Some(old_entry) = self.symbol_table.get(&var_decl.name) {
+                if let ast::Type::Fn(_) = old_entry.ty {
+                    panic!("Function redeclared as a variable");
+                }
+            } else {
+                let attrs = IdentifierAttrs::Static { init: InitialValue::NoInit, global: true };
+                self.symbol_table.insert(var_decl.name.clone(), SymbolTableEntry::new(ast::Type::Int, attrs));
+            }
+
+            return var_decl;
+        }
+
+        if var_decl.storage_class == Some(ast::StorageClass::Static) {
+            let init = if let Some(ast::Expr::Number(n)) = var_decl.expr {
+                InitialValue::Initial(n)
+            } else if var_decl.expr.is_none() {
+                InitialValue::Initial(0)
+            } else {
+                panic!("Non-constant init on static variable {}", var_decl.name);
+            };
+
+            let attrs = IdentifierAttrs::Static { init: init, global: false };
+            self.symbol_table.insert(var_decl.name.clone(), SymbolTableEntry::new(ast::Type::Int, attrs));
+
+            return var_decl;
+        }
+        
+        let attrs = IdentifierAttrs::Local;
+        self.symbol_table.insert(var_decl.name.clone(), SymbolTableEntry::new(ast::Type::Int, attrs));
         var_decl.expr = var_decl.expr.map(|e|self.typecheck_expr(e));
         return var_decl;
     }

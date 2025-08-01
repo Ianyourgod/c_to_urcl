@@ -4,12 +4,12 @@ use crate::ast::*;
 grammar;
 
 pub Program: Program = {
-    FunctionDecl* => Program::new(<>)
+    Declaration* => Program::new(<>)
 };
 
 FunctionDecl: FunctionDecl = {
-    Type <n:Ident> "(" <p:ParamList> ")" <b:Block> => FunctionDecl::new(n,p,Some(b)),
-    Type <n:Ident> "(" <p:ParamList> ")" ";" => FunctionDecl::new(n,p,None)
+    <tas:TypeAndStorageClass> <n:Ident> "(" <p:ParamList> ")" <b:Block> => FunctionDecl::new(n,p,Some(b), tas.1),
+    <tas:TypeAndStorageClass> <n:Ident> "(" <p:ParamList> ")" ";" => FunctionDecl::new(n,p,None, tas.1),
 };
 
 Comma<T>: Vec<T> = {
@@ -79,12 +79,48 @@ ForInit: ForInit = {
 }
 
 VarDeclaration: VarDeclaration = {
-    Type <n:Ident> "=" <e:Expr> ";" => VarDeclaration::new(Rc::new(n), Some(e)),
-    Type <n:Ident> ";" => VarDeclaration::new(Rc::new(n), None),
+    <tas:TypeAndStorageClass> <n:Ident> <e:("=" <Expr>)?> ";" => VarDeclaration::new(Rc::new(n), e, tas.1),
 }
+
+Specifier: Specifier = {
+    "extern" => Specifier::Storage(StorageClass::Extern),
+    "static" => Specifier::Storage(StorageClass::Static),
+    Type     => Specifier::Type(<>),
+};
 
 Type: Type = {
     "int" => Type::Int,
+};
+
+TypeAndStorageClass: (Type, Option<StorageClass>) = {
+    <spec_list:SpecifierList> => {
+        let mut types = Vec::new();
+        let mut storage_class = None;
+        for spec in spec_list {
+            match spec {
+                Specifier::Storage(c) => {
+                    if storage_class.is_some() { panic!("Cannot have more than one storage class!!!!"); }
+
+                    storage_class = Some(c);
+                },
+                Specifier::Type(ty) => {
+                    types.push(ty);
+                }
+            }
+        }
+
+        if types.len() != 1 {
+            panic!("Invalid type specifier");
+        }
+
+        let ty = Type::Int;
+
+        return (ty, storage_class)
+    }
+};
+
+SpecifierList: Vec<Specifier> = {
+    Specifier+ => <>
 }
 
 Expr: Expr = {
@@ -224,5 +260,5 @@ Num: i32 = {
 };
 
 Ident: String = {
-    r"[a-zA-Z][a-zA-Z0-9]*" => <>.to_string(),
+    r"[a-zA-Z_][a-zA-Z0-9_]*" => <>.to_string(),
 }

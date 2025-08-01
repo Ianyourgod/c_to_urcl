@@ -6,13 +6,13 @@ use crate::Ident;
 
 #[derive(Debug, Clone)]
 pub struct Program {
-    pub functions: Vec<FunctionDecl>,
+    pub top_level_items: Vec<Declaration>,
 }
 
 impl Program {
-    pub fn new(fns: Vec<FunctionDecl>) -> Self {
+    pub fn new(fns: Vec<Declaration>) -> Self {
         Self {
-            functions: fns,
+            top_level_items: fns,
         }
     }
 }
@@ -22,14 +22,16 @@ pub struct FunctionDecl {
     pub name: Ident,
     pub params: Vec<Ident>,
     pub block: Option<Block>,
+    pub storage_class: Option<StorageClass>,
 }
 
 impl FunctionDecl {
-    pub fn new(name: String, params: Vec<(Type, String)>, block: Option<Block>) -> Self {
+    pub fn new(name: String, params: Vec<(Type, String)>, block: Option<Block>, storage_class: Option<StorageClass>) -> Self {
         Self {
             name: Rc::new(name),
             params: params.into_iter().map(|(_, s)|Rc::new(s)).collect(),
-            block
+            block,
+            storage_class
         }
     }
 }
@@ -89,11 +91,12 @@ pub enum ForInit {
 pub struct VarDeclaration {
     pub name: Ident,
     pub expr: Option<Expr>,
+    pub storage_class: Option<StorageClass>,
 }
 
 impl VarDeclaration {
-    pub fn new(name: Ident, expr: Option<Expr>) -> Self {
-        Self { name, expr }
+    pub fn new(name: Ident, expr: Option<Expr>, storage_class: Option<StorageClass>) -> Self {
+        Self { name, expr, storage_class }
     }
 }
 
@@ -156,4 +159,16 @@ pub enum AssignType {
 pub enum Type {
     Int,
     Fn(usize),
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum StorageClass {
+    Static,
+    Extern,
+}
+
+#[derive(Debug, Clone)]
+pub enum Specifier {
+    Storage(StorageClass),
+    Type(Type)
 }

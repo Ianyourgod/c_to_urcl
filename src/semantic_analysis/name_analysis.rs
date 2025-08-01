@@ -52,7 +52,16 @@ impl Analyzer {
         let mut ctx = Context { mappings: HashMap::new() };
 
         ast::Program {
-            functions: program.functions.into_iter().map(|f|self.analyze_function(f, &mut ctx)).collect()
+            top_level_items: program.top_level_items.into_iter().map(|f|{
+                match f {
+                    ast::Declaration::Fn(func) => {
+                        ast::Declaration::Fn(self.analyze_function(func, &mut ctx))
+                    },
+                    ast::Declaration::Var(var) => {
+                        ast::Declaration::Var(self.analyze_file_scope_var_decl(var, &mut ctx))
+                    }
+                }
+            }).collect()
         }
     }
 
@@ -61,21 +70,32 @@ impl Analyzer {
         Rc::new(format!(".na.gen.{}.{}", old_ident, self.tmp_count))
     }
 
+    fn analyze_file_scope_var_decl(&mut self, decl: ast::VarDeclaration, context: &mut Context) -> ast::VarDeclaration {
+        self.add_new_name(decl.name.clone(), context, true);
+
+        decl
+    }
+
     fn analyze_function(&mut self, function: ast::FunctionDecl, context: &mut Context) -> ast::FunctionDecl {
-        let global = true;
+        let global = function.storage_class != Some(ast::StorageClass::Static);
         let name = self.add_new_name(function.name, context, global);
 
         let mut context = context.clone();
         let context = &mut context;
 
         let params = function.params.into_iter().map(|param| {
+            if let Some(item) = context.mappings.get(&param) && item.from_this_scope {
+                panic!("Cannot declare parameter with same name, {param}");
+            }
+
             self.add_new_name(param, context, false)
         }).collect();
 
         ast::FunctionDecl {
             name,
             params,
-            block: function.block.map(|b|self.analyze_block(b, context))
+            block: function.block.map(|b|self.analyze_block(b, context)),
+            storage_class: function.storage_class
         }
     }
 
@@ -108,10 +128,6 @@ impl Analyzer {
     }
 
     fn add_new_name(&mut self, old_name: Ident, context: &mut Context, has_linkage: bool) -> Ident {
-        if let Some(item) = context.mappings.get(&old_name) && item.from_this_scope {
-            panic!("Cannot redefine {old_name}");
-        }
-
         let name = if !has_linkage {
             self.gen_new_ident(&old_name)
         } else {
@@ -122,9 +138,24 @@ impl Analyzer {
     }
 
     fn analyze_var_decl(&mut self, var_decl: ast::VarDeclaration, context: &mut Context) -> ast::VarDeclaration {
+        let is_extern = var_decl.storage_class == Some(ast::StorageClass::Extern);
+        
+        if let Some(item) = context.mappings.get(&var_decl.name)
+           && item.from_this_scope
+           && !(item.has_linkage && is_extern)
+        {
+            panic!("Conflicting local declarations for {}", var_decl.name);
+        }
+
+        if is_extern {
+            self.add_new_name(var_decl.name.clone(), context, true);
+
+            return var_decl;
+        }
+
         let name = self.add_new_name(var_decl.name, context, false);
 
-        ast::VarDeclaration::new(name, var_decl.expr.map(|expr|self.analyze_expr(expr, context)))
+        ast::VarDeclaration::new(name, var_decl.expr.map(|expr|self.analyze_expr(expr, context)), var_decl.storage_class)
     }
 
     fn analyze_statement(&mut self, statement: ast::Statement, context: &mut Context) -> ast::Statement {

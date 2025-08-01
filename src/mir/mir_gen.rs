@@ -3,56 +3,95 @@ use std::rc::Rc;
 
 use crate::mir::mir_def;
 use crate::ast;
+use crate::semantic_analysis::type_check::{IdentifierAttrs, InitialValue, SymbolTable, SymbolTableEntry};
 
-#[derive(Debug, Clone)]
-pub struct Generator {
-    tmp_count: u32
+#[derive(Debug)]
+pub struct Generator<'s> {
+    tmp_count: u32,
+    symbol_table: &'s mut SymbolTable
 }
 
-impl Generator {
-    pub fn new() -> Self {
+impl<'s> Generator<'s> {
+    pub fn new(symbol_table: &'s mut SymbolTable) -> Self {
         Self {
-            tmp_count: 0
+            tmp_count: 0,
+            symbol_table
         }
     }
 
-    pub fn generate(&mut self, ast: ast::Program) -> mir_def::Program {
+    pub fn generate(mut self, ast: ast::Program) -> mir_def::Program {
+        let mut top_level: Vec<mir_def::TopLevel> = Vec::new();
+        
+        for f in ast.top_level_items {
+            let f = if let ast::Declaration::Fn(f) = f { f } else { continue; };
+
+            if let Some(f) = self.generate_function(f) {
+                top_level.push(mir_def::TopLevel::Fn(f));
+            }
+        }
+
+        // now traverse the symbol table
+        for (name, entry) in &self.symbol_table.table {
+            match entry.attrs {
+                IdentifierAttrs::Static { init, global } => {
+                    match init {
+                        InitialValue::Initial(n) => { top_level.push(mir_def::TopLevel::Var(mir_def::StaticVariable {
+                            name: name.clone(),
+                            global,
+                            init: n
+                        })); },
+                        InitialValue::Tentative => { top_level.push(mir_def::TopLevel::Var(mir_def::StaticVariable {
+                            name: name.clone(),
+                            global,
+                            init: 0
+                        })); },
+                        InitialValue::NoInit => continue,
+                    }
+                },
+                _ => continue,
+            }
+        }
+
         mir_def::Program { 
-            functions: 
-                ast.functions.into_iter().filter_map(|f| self.generate_function(f)).collect()
+            top_level
         }
     }
 
     fn generate_function(&mut self, function: ast::FunctionDecl) -> Option<mir_def::Function> {
-        let fn_gen = FunctionGenerator::new(self);
+        let mut tmp_tmp_count = self.tmp_count;
+        let fn_gen = FunctionGenerator::new(&mut tmp_tmp_count);
 
-        fn_gen.generate(function)
+        let f = fn_gen.generate(self.symbol_table, function);
+
+        self.tmp_count = tmp_tmp_count;
+
+        f
     }
 }
 
 struct FunctionGenerator<'l> {
-    generator: &'l mut Generator,
+    tmp_count: &'l mut u32,
     cfg: mir_def::CFG,
     current_block: mir_def::GenericBlock,
 }
 
 impl<'l> FunctionGenerator<'l> {
-    pub fn new(generator: &'l mut Generator) -> Self {
+    pub fn new(tmp_count: &'l mut u32) -> Self {
         let mut cfg = mir_def::CFG {
             blocks: HashMap::new()
         };
 
-        generator.tmp_count += 1;
-        let n = generator.tmp_count;
+        *tmp_count += 1;
+        let n = *tmp_count;
         let id = mir_def::GenericBlockID::Generic(n);
 
         cfg.blocks.insert(mir_def::BlockID::Start, mir_def::BasicBlock::Start { successors: vec![mir_def::BlockID::Generic(id)] });
         cfg.blocks.insert(mir_def::BlockID::End, mir_def::BasicBlock::End);
 
         Self {
-            generator,
+            tmp_count,
             cfg,
-            current_block: Self::temp_block_ns(id)
+            current_block: Self::temp_block_ns(id),
         }
     }
 
@@ -64,39 +103,51 @@ impl<'l> FunctionGenerator<'l> {
         }
     }
 
-    pub fn generate(mut self, function: ast::FunctionDecl) -> Option<mir_def::Function> {
+    pub fn generate(mut self, symbol_table: &mut SymbolTable, function: ast::FunctionDecl) -> Option<mir_def::Function> {
         function.block.map(|block| {
-            self.generate_block(block);
+            self.generate_block(block, symbol_table);
 
             self.new_block();
+
+            let entry = symbol_table.get(&function.name).unwrap();
+            let global = if let IdentifierAttrs::Fn { global, .. } = entry.attrs { global } else { unreachable!() };
             
-            mir_def::Function { name: function.name, params: function.params, basic_blocks: self.cfg }
+            mir_def::Function {
+                name: function.name,
+                global,
+                params: function.params,
+                basic_blocks: self.cfg
+            }
         })
     }
 
-    fn generate_block(&mut self, block: ast::Block) {
+    fn generate_block(&mut self, block: ast::Block, symbol_table: &mut SymbolTable) {
         for stmt in block.statements {
             match stmt {
                 ast::BlockItem::Declaration(decl) => {
-                    self.generate_declaration(decl);
+                    self.generate_declaration(decl, symbol_table);
                 },
                 ast::BlockItem::Statement(stmt) => {
-                    self.generate_statement(stmt);
+                    self.generate_statement(stmt, symbol_table);
                 }
             }
         }
     }
 
-    fn generate_declaration(&mut self, decl: ast::Declaration) {
+    fn generate_declaration(&mut self, decl: ast::Declaration, symbol_table: &mut SymbolTable) {
         match decl {
-            ast::Declaration::Var(v) => self.generate_var_decl(v),
+            ast::Declaration::Var(v) => self.generate_var_decl(v, symbol_table),
             ast::Declaration::Fn(_) => ()
         }
     }
 
-    fn generate_var_decl(&mut self, decl: ast::VarDeclaration) {
+    fn generate_var_decl(&mut self, decl: ast::VarDeclaration, symbol_table: &mut SymbolTable) {
+        if decl.storage_class.is_some() {
+            return;
+        }
+
         if let Some(expr) = decl.expr {
-            let v = self.generate_expr(expr);
+            let v = self.generate_expr(expr, symbol_table);
             self.current_block.instructions.push(mir_def::Instruction::Copy {
                 src: v,
                 dst: decl.name
@@ -104,17 +155,17 @@ impl<'l> FunctionGenerator<'l> {
         }
     }
 
-    fn generate_statement(&mut self, stmt: ast::Statement) {
+    fn generate_statement(&mut self, stmt: ast::Statement, symbol_table: &mut SymbolTable) {
         match stmt {
             ast::Statement::Return(expr) => {
-                self.current_block.terminator = mir_def::Terminator::Return(self.generate_expr(expr));
+                self.current_block.terminator = mir_def::Terminator::Return(self.generate_expr(expr, symbol_table));
                 self.new_block();
             },
             ast::Statement::Expr(expr) => {
-                self.generate_expr(expr);
+                self.generate_expr(expr, symbol_table);
             },
             ast::Statement::If(cond, box (then, else_stmt)) => {
-                let cond = self.generate_expr(cond);
+                let cond = self.generate_expr(cond, symbol_table);
 
                 let cond_true_label = self.gen_block_id();
                 let cond_false_label = self.gen_block_id();
@@ -129,13 +180,13 @@ impl<'l> FunctionGenerator<'l> {
 
                 self.new_block_w_id(cond_true_label);
 
-                self.generate_statement(then);
+                self.generate_statement(then, symbol_table);
 
                 if let Some(else_stmt) = else_stmt {
                     let end_label = self.gen_block_id();
                     self.current_block.terminator = mir_def::Terminator::Jump { target: end_label };
                     self.new_block_w_id(cond_false_label);
-                    self.generate_statement(else_stmt);
+                    self.generate_statement(else_stmt, symbol_table);
                     self.current_block.terminator = mir_def::Terminator::Jump { target: end_label };
                     self.new_block_w_id(end_label);
 
@@ -145,7 +196,7 @@ impl<'l> FunctionGenerator<'l> {
                 }
             },
             ast::Statement::Block(block) => {
-                self.generate_block(block);
+                self.generate_block(block, symbol_table);
             },
             ast::Statement::While(cond, box stmt, label) => {
                 let continue_label = self.gen_loop_block_id(label, false);
@@ -153,7 +204,7 @@ impl<'l> FunctionGenerator<'l> {
                 self.current_block.terminator = mir_def::Terminator::Jump { target: continue_label };
                 self.new_block_w_id(continue_label);
 
-                let cond = self.generate_expr(cond);
+                let cond = self.generate_expr(cond, symbol_table);
 
                 let loop_label = self.gen_block_id();
 
@@ -167,7 +218,7 @@ impl<'l> FunctionGenerator<'l> {
 
                 self.new_block_w_id(loop_label);
 
-                self.generate_statement(stmt);
+                self.generate_statement(stmt, symbol_table);
 
                 self.current_block.terminator = mir_def::Terminator::Jump { target: continue_label };
 
@@ -181,13 +232,13 @@ impl<'l> FunctionGenerator<'l> {
                 self.current_block.terminator = mir_def::Terminator::Jump { target: loop_label };
                 self.new_block_w_id(loop_label);
 
-                self.generate_statement(stmt);
+                self.generate_statement(stmt, symbol_table);
 
                 self.current_block.terminator = mir_def::Terminator::Jump { target: continue_label };
 
                 self.new_block_w_id(continue_label);
 
-                let cond = self.generate_expr(cond);
+                let cond = self.generate_expr(cond, symbol_table);
 
                 self.current_block.terminator = mir_def::Terminator::JumpCond {
                     target: break_label,
@@ -201,8 +252,8 @@ impl<'l> FunctionGenerator<'l> {
             },
             ast::Statement::For { init, cond, post, box body, label } => {
                 match init {
-                    ast::ForInit::Decl(decl) => self.generate_var_decl(decl),
-                    ast::ForInit::Expr(expr) => { self.generate_expr(expr); },
+                    ast::ForInit::Decl(decl) => self.generate_var_decl(decl, symbol_table),
+                    ast::ForInit::Expr(expr) => { self.generate_expr(expr, symbol_table); },
                     ast::ForInit::None => ()
                 }
 
@@ -216,7 +267,7 @@ impl<'l> FunctionGenerator<'l> {
                 let break_label = self.gen_loop_block_id(label, true);
 
                 if let Some(cond) = cond {
-                    let cond = self.generate_expr(cond);
+                    let cond = self.generate_expr(cond, symbol_table);
 
                     let new_block = self.gen_block_id();
 
@@ -231,13 +282,13 @@ impl<'l> FunctionGenerator<'l> {
                     self.new_block_w_id(new_block);
                 }
 
-                self.generate_statement(body);
+                self.generate_statement(body, symbol_table);
 
                 self.current_block.terminator = mir_def::Terminator::Jump { target: continue_label };
 
                 self.new_block_w_id(continue_label);
 
-                if let Some(post) = post { self.generate_expr(post); }
+                if let Some(post) = post { self.generate_expr(post, symbol_table); }
 
                 self.current_block.terminator = mir_def::Terminator::Jump { target: start_label };
 
@@ -274,13 +325,19 @@ impl<'l> FunctionGenerator<'l> {
     }
 
     fn gen_tmp_name(&mut self) -> mir_def::Ident {
-        self.generator.tmp_count += 1;
-        Rc::new(format!("tmp.{}.", self.generator.tmp_count))
+        *self.tmp_count += 1;
+        Rc::new(format!("tmp.{}.", self.tmp_count))
+    }
+
+    fn gen_tmp_var(&mut self, symbol_table: &mut SymbolTable) -> mir_def::Ident {
+        let name = self.gen_tmp_name();
+        symbol_table.insert(name.clone(), SymbolTableEntry::new(ast::Type::Int, IdentifierAttrs::Local));
+        name
     }
 
     fn gen_block_id(&mut self) -> mir_def::GenericBlockID {
-        self.generator.tmp_count += 1;
-        mir_def::GenericBlockID::Generic(self.generator.tmp_count)
+        *self.tmp_count += 1;
+        mir_def::GenericBlockID::Generic(*self.tmp_count)
     }
 
     fn gen_loop_block_id(&mut self, loop_id: u32, is_break: bool) -> mir_def::GenericBlockID {
@@ -291,13 +348,13 @@ impl<'l> FunctionGenerator<'l> {
         }
     }
 
-    fn generate_expr(&mut self, expr: ast::Expr) -> mir_def::Val {
+    fn generate_expr(&mut self, expr: ast::Expr, symbol_table: &mut SymbolTable) -> mir_def::Val {
         match expr {
             ast::Expr::Number(n) => mir_def::Val::Num(n),
             ast::Expr::Binary(ast::BinOp::Assign(ast::AssignType::Normal), box (var, val)) => {
                 let var_name = match var { ast::Expr::Var(v) => v, _ => unreachable!() };
 
-                let val = self.generate_expr(val);
+                let val = self.generate_expr(val, symbol_table);
 
                 self.current_block.instructions.push(mir_def::Instruction::Copy {
                     src: val,
@@ -309,8 +366,8 @@ impl<'l> FunctionGenerator<'l> {
             ast::Expr::Binary(ast::BinOp::Assign(assign_type), box (var, val)) => {
                 let var_name = match &var { ast::Expr::Var(v) => v.clone(), _ => unreachable!() };
 
-                let var_val = self.generate_expr(var);
-                let val = self.generate_expr(val);
+                let var_val = self.generate_expr(var, symbol_table);
+                let val = self.generate_expr(val, symbol_table);
 
                 self.current_block.instructions.push(mir_def::Instruction::Binary {
                     op: match assign_type {
@@ -340,9 +397,9 @@ impl<'l> FunctionGenerator<'l> {
                 let first_true_id = self.gen_block_id();
                 let true_id = self.gen_block_id();
 
-                let left = self.generate_expr(left);
+                let left = self.generate_expr(left, symbol_table);
 
-                let res = self.gen_tmp_name();
+                let res = self.gen_tmp_var(symbol_table);
 
                 self.current_block.instructions.push(mir_def::Instruction::Copy { src: mir_def::Val::Num(0), dst: res.clone() });
 
@@ -356,7 +413,7 @@ impl<'l> FunctionGenerator<'l> {
 
                 self.new_block_w_id(first_true_id);
 
-                let right = self.generate_expr(right);
+                let right = self.generate_expr(right, symbol_table);
 
                 self.current_block.terminator = mir_def::Terminator::JumpCond {
                     target: true_id,
@@ -381,9 +438,9 @@ impl<'l> FunctionGenerator<'l> {
                 let first_false_id = self.gen_block_id();
                 let true_id = self.gen_block_id();
 
-                let left = self.generate_expr(left);
+                let left = self.generate_expr(left, symbol_table);
 
-                let res = self.gen_tmp_name();
+                let res = self.gen_tmp_var(symbol_table);
 
                 self.current_block.instructions.push(mir_def::Instruction::Copy { src: mir_def::Val::Num(1), dst: res.clone() });
 
@@ -397,7 +454,7 @@ impl<'l> FunctionGenerator<'l> {
 
                 self.new_block_w_id(first_false_id);
 
-                let right = self.generate_expr(right);
+                let right = self.generate_expr(right, symbol_table);
 
                 self.current_block.terminator = mir_def::Terminator::JumpCond {
                     target: false_id,
@@ -440,10 +497,10 @@ impl<'l> FunctionGenerator<'l> {
                     ast::BinOp::And | ast::BinOp::Or => unreachable!()
                 };
 
-                let left = self.generate_expr(left);
-                let right = self.generate_expr(right);
+                let left = self.generate_expr(left, symbol_table);
+                let right = self.generate_expr(right, symbol_table);
 
-                let tmp_name = self.gen_tmp_name();
+                let tmp_name = self.gen_tmp_var(symbol_table);
 
                 self.current_block.instructions.push(mir_def::Instruction::Binary {
                     op,
@@ -455,9 +512,9 @@ impl<'l> FunctionGenerator<'l> {
                 mir_def::Val::Var(tmp_name)
             },
             ast::Expr::Unary(ast::UnOp::Not, box inner) => {
-                let res = self.gen_tmp_name();
+                let res = self.gen_tmp_var(symbol_table);
 
-                let inner = self.generate_expr(inner);
+                let inner = self.generate_expr(inner, symbol_table);
 
                 self.current_block.instructions.push(mir_def::Instruction::Copy { src: mir_def::Val::Num(0), dst: res.clone() });
 
@@ -490,9 +547,9 @@ impl<'l> FunctionGenerator<'l> {
                     ast::UnOp::Not => unreachable!(),
                 };
 
-                let inner = self.generate_expr(inner);
+                let inner = self.generate_expr(inner, symbol_table);
 
-                let tmp_name = self.gen_tmp_name();
+                let tmp_name = self.gen_tmp_var(symbol_table);
 
                 self.current_block.instructions.push(mir_def::Instruction::Unary {
                     op,
@@ -503,9 +560,9 @@ impl<'l> FunctionGenerator<'l> {
                 mir_def::Val::Var(tmp_name)
             },
             ast::Expr::Ternary(box (cond, then_expr, else_expr)) => {
-                let cond = self.generate_expr(cond);
+                let cond = self.generate_expr(cond, symbol_table);
 
-                let ret = self.gen_tmp_name();
+                let ret = self.gen_tmp_var(symbol_table);
 
                 let true_label = self.gen_block_id();
                 let false_label = self.gen_block_id();
@@ -521,7 +578,7 @@ impl<'l> FunctionGenerator<'l> {
 
                 self.new_block_w_id(true_label);
 
-                let v = self.generate_expr(then_expr);
+                let v = self.generate_expr(then_expr, symbol_table);
                 self.current_block.instructions.push(mir_def::Instruction::Copy {
                     src: v,
                     dst: ret.clone()
@@ -531,7 +588,7 @@ impl<'l> FunctionGenerator<'l> {
 
                 self.new_block_w_id(false_label);
 
-                let v = self.generate_expr(else_expr);
+                let v = self.generate_expr(else_expr, symbol_table);
                 self.current_block.instructions.push(mir_def::Instruction::Copy {
                     src: v,
                     dst: ret.clone()
@@ -544,9 +601,9 @@ impl<'l> FunctionGenerator<'l> {
                 mir_def::Val::Var(ret)
             },
             ast::Expr::FunctionCall(name, exprs) => {
-                let args = exprs.into_iter().map(|e|self.generate_expr(e)).collect();
+                let args = exprs.into_iter().map(|e|self.generate_expr(e, symbol_table)).collect();
 
-                let dst = self.gen_tmp_name();
+                let dst = self.gen_tmp_var(symbol_table);
 
                 self.current_block.instructions.push(mir_def::Instruction::FunctionCall { name, args, dst: dst.clone() });
 

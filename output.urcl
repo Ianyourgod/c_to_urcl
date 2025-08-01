@@ -9,65 +9,63 @@ IMM $3 0
 CAL .main
 OUT %NUMB $1
 HLT
-.main
+.howMany
 	PSH $2
 	MOV $2 $3
-	ADD $3 $3 1
+	ADD $3 $3 0
 	POP $1
 	POP $2
 	PSH $2
 	PSH $1
 	.lbl.gen.1.
-	PSH 7
-	PSH 2
-	CAL .pow
-	MOV $7 $1
-	LSTR $2 1 $7
-	LLOD $7 $2 1
+	LLOD $7 ..na.gen.called_x_times.1 0
+	ADD $7 $7 1
+	LSTR ..na.gen.called_x_times.1 0 $7
+	LLOD $7 ..na.gen.called_x_times.1 0
 	MOV $1 $7
 	MOV $3 $2
 	POP $2
 	RET
-.pow
+.main
 	PSH $2
 	MOV $2 $3
 	ADD $3 $3 4
 	POP $1
 	POP $2
-	POP $7
-	LSTR $2 1 $7
-	POP $7
-	LSTR $2 2 $7
 	PSH $2
 	PSH $1
+	.lbl.gen.4.
+	MOV $7 0
+	LSTR $2 1 $7
+	JMP .lbl.gen.5.
 	.lbl.gen.5.
-	MOV $7 1
-	LSTR $2 3 $7
-	JMP .lbl.gen.6.
-	.lbl.gen.6.
+	LLOD $7 $2 1
+	SSETL $7 $7 99
+	LSTR $2 2 $7
 	LLOD $7 $2 2
-	SSETG $7 $7 0
-	LSTR $2 4 $7
-	LLOD $7 $2 4
 	AND $7 $7 1
-	LSTR $2 4 $7
-	LLOD $7 $2 4
+	LSTR $2 2 $7
+	LLOD $7 $2 2
 	BRE .lbl.lbreak.1. $7 0
-	JMP .lbl.gen.8.
+	JMP .lbl.gen.7.
 	.lbl.lbreak.1.
+	CAL .howMany
+	MOV $7 $1
+	LSTR $2 3 $7
 	LLOD $7 $2 3
 	MOV $1 $7
 	MOV $3 $2
 	POP $2
 	RET
-	.lbl.gen.8.
-	LLOD $7 $2 3
-	LLOD $8 $2 1
-	MLT $7 $7 $8
-	LSTR $2 3 $7
+	.lbl.gen.7.
+	CAL .howMany
+	MOV $7 $1
+	LSTR $2 4 $7
 	JMP .lbl.lcont1.
 	.lbl.lcont1.
-	LLOD $7 $2 2
-	SUB $7 $7 1
-	LSTR $2 2 $7
-	JMP .lbl.gen.6.
+	LLOD $7 $2 1
+	ADD $7 $7 1
+	LSTR $2 1 $7
+	JMP .lbl.gen.5.
+..na.gen.called_x_times.1
+	DW 0
