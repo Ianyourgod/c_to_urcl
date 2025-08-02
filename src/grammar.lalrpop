@@ -3,13 +3,13 @@ use crate::ast::*;
 
 grammar;
 
-pub Program: Program = {
+pub Program: Program<Expr> = {
     Declaration* => Program::new(<>)
 };
 
-FunctionDecl: FunctionDecl = {
-    <tas:TypeAndStorageClass> <n:Ident> "(" <p:ParamList> ")" <b:Block> => FunctionDecl::new(n,p,Some(b), tas.1),
-    <tas:TypeAndStorageClass> <n:Ident> "(" <p:ParamList> ")" ";" => FunctionDecl::new(n,p,None, tas.1),
+FunctionDecl: FunctionDecl<Expr> = {
+    <tas:TypeAndStorageClass> <n:Ident> "(" <p:ParamList> ")" <b:Block> => FunctionDecl::new(n, tas.0, p,Some(b), tas.1),
+    <tas:TypeAndStorageClass> <n:Ident> "(" <p:ParamList> ")" ";" => FunctionDecl::new(n, tas.0, p,None, tas.1),
 };
 
 Comma<T>: Vec<T> = {
@@ -27,26 +27,26 @@ ParamList: Vec<(Type, String)> = {
     Comma<(Type Ident)> => <>,
 }
 
-Block: Block = {
+Block: Block<Expr> = {
     "{" <s:BlockItem*> "}" => Block::new(s)
 }
 
-Declaration: Declaration = {
+Declaration: Declaration<Expr> = {
     VarDeclaration => Declaration::Var(<>),
     FunctionDecl => Declaration::Fn(<>),
 }
 
-BlockItem: BlockItem = {
+BlockItem: BlockItem<Expr> = {
     Statement => BlockItem::Statement(<>),
     Declaration => BlockItem::Declaration(<>)
 }
 
-Statement: Statement = {
+Statement: Statement<Expr> = {
     OpenStatement => <>,
     ClosedStatement => <>,
 };
 
-OpenStatement: Statement = {
+OpenStatement: Statement<Expr> = {
     "if" "(" <c:Expr> ")" <t:Statement> => Statement::If(c, Box::new((t, None))),
     "if" "(" <c:Expr> ")" <t:ClosedStatement> "else" <e:OpenStatement> => Statement::If(c, Box::new((t, Some(e)))),
     "while" "(" <cond:Expr> ")" <s:OpenStatement> => Statement::While(cond, Box::new(s), 0),
@@ -55,7 +55,7 @@ OpenStatement: Statement = {
     "for" "(" <init:ForInit> <cond:Expr?> ";" <post:Expr?> ")" <stmt:OpenStatement> => Statement::For { init, cond, post, body: Box::new(stmt), label: 0 },
 }
 
-ClosedStatement: Statement = {
+ClosedStatement: Statement<Expr> = {
     NormalStatement => <>,
     "if" "(" <c:Expr> ")" <t:ClosedStatement> "else" <e:ClosedStatement> => Statement::If(c, Box::new((t, Some(e)))),
     "while" "(" <cond:Expr> ")" <s:ClosedStatement> => Statement::While(cond, Box::new(s), 0),
@@ -64,7 +64,7 @@ ClosedStatement: Statement = {
     "for" "(" <init:ForInit> <cond:Expr?> ";" <post:Expr?> ")" <stmt:ClosedStatement> => Statement::For { init, cond, post, body: Box::new(stmt), label: 0 },
 }
 
-NormalStatement: Statement = {
+NormalStatement: Statement<Expr> = {
     "return" <e:Expr> ";" => Statement::Return(e),
     <e:Expr> ";" => Statement::Expr(e),
     Block => Statement::Block(<>),
@@ -72,25 +72,44 @@ NormalStatement: Statement = {
     "continue" ";" => Statement::Continue(0),
 }
 
-ForInit: ForInit = {
+ForInit: ForInit<Expr> = {
     VarDeclaration => ForInit::Decl(<>),
     <e:Expr> ";" => ForInit::Expr(e),
     ";" => ForInit::None,
 }
 
-VarDeclaration: VarDeclaration = {
-    <tas:TypeAndStorageClass> <n:Ident> <e:("=" <Expr>)?> ";" => VarDeclaration::new(Rc::new(n), e, tas.1),
+VarDeclaration: VarDeclaration<Expr> = {
+    <tas:TypeAndStorageClass> <n:Ident> <e:("=" <Expr>)?> ";" => VarDeclaration::new(Rc::new(n), tas.0, e, tas.1),
 }
 
 Specifier: Specifier = {
-    "extern" => Specifier::Storage(StorageClass::Extern),
-    "static" => Specifier::Storage(StorageClass::Static),
-    Type     => Specifier::Type(<>),
+    "extern"   => Specifier::Extern,
+    "static"   => Specifier::Static,
+    "int"      => Specifier::Int,
+    "unsigned" => Specifier::Unsigned,
 };
 
 Type: Type = {
-    "int" => Type::Int,
-};
+    <spec_list:SpecifierList> => {
+        let mut types = Vec::new();
+        for spec in spec_list {
+            match spec {
+                Specifier::Extern |
+                Specifier::Static => {
+                    panic!("Didn't expect an storage class specifiers here... only types....");
+                },
+
+                Specifier::Int         |
+                Specifier::Signed      |
+                Specifier::Unsigned => {
+                    types.push(spec);
+                },
+            }
+        }
+
+        return Type::from_specifiers(types)
+    }
+}
 
 TypeAndStorageClass: (Type, Option<StorageClass>) = {
     <spec_list:SpecifierList> => {
@@ -98,22 +117,24 @@ TypeAndStorageClass: (Type, Option<StorageClass>) = {
         let mut storage_class = None;
         for spec in spec_list {
             match spec {
-                Specifier::Storage(c) => {
+                Specifier::Extern => {
                     if storage_class.is_some() { panic!("Cannot have more than one storage class!!!!"); }
-
-                    storage_class = Some(c);
+                    storage_class = Some(StorageClass::Extern);
                 },
-                Specifier::Type(ty) => {
-                    types.push(ty);
-                }
+                Specifier::Static => {
+                    if storage_class.is_some() { panic!("Cannot have more than one storage class!!!!"); }
+                    storage_class = Some(StorageClass::Static);
+                },
+
+                Specifier::Int         |
+                Specifier::Signed      |
+                Specifier::Unsigned => {
+                    types.push(spec);
+                },
             }
         }
 
-        if types.len() != 1 {
-            panic!("Invalid type specifier");
-        }
-
-        let ty = Type::Int;
+        let ty = Type::from_specifiers(types);
 
         return (ty, storage_class)
     }
@@ -128,62 +149,62 @@ Expr: Expr = {
 };
 
 Expr14: Expr = {
-    <l:Expr13> <o:Assign> <r:Expr14> => Expr::Binary(BinOp::Assign(o),Box::new((l,r))),
+    <l:Expr13> <o:Assign> <r:Expr14> => Expr::new(DefaultExpr::Binary(BinOp::Assign(o),Box::new((l,r)))),
     Expr13 => <>,
 };
 
 Expr13: Expr = {
-    <cond:Expr13> "?" <t:Expr> ":" <e:Expr12> => Expr::Ternary(Box::new((cond,t,e))),
+    <cond:Expr13> "?" <t:Expr> ":" <e:Expr12> => Expr::new(DefaultExpr::Ternary(Box::new((cond,t,e)))),
     Expr12,
 };
 
 Expr12: Expr = {
-    <l:Expr12> "||" <r:Expr11> => Expr::Binary(BinOp::Or,Box::new((l,r))),
+    <l:Expr12> "||" <r:Expr11> => Expr::new(DefaultExpr::Binary(BinOp::Or,Box::new((l,r)))),
     Expr11,
 };
 
 Expr11: Expr = {
-    <l:Expr11> "&&" <r:Expr10> => Expr::Binary(BinOp::And,Box::new((l,r))),
+    <l:Expr11> "&&" <r:Expr10> => Expr::new(DefaultExpr::Binary(BinOp::And,Box::new((l,r)))),
     Expr10,
 };
 
 Expr10: Expr = {
-    <l:Expr10> "|" <r:Expr9> => Expr::Binary(BinOp::BitwiseOr,Box::new((l,r))),
+    <l:Expr10> "|" <r:Expr9> => Expr::new(DefaultExpr::Binary(BinOp::BitwiseOr,Box::new((l,r)))),
     Expr9,
 };
 
 Expr9: Expr = {
-    <l:Expr9> "^" <r:Expr8> => Expr::Binary(BinOp::BitwiseXor,Box::new((l,r))),
+    <l:Expr9> "^" <r:Expr8> => Expr::new(DefaultExpr::Binary(BinOp::BitwiseXor,Box::new((l,r)))),
     Expr8,
 };
 
 Expr8: Expr = {
-    <l:Expr8> "&" <r:Expr7> => Expr::Binary(BinOp::BitwiseAnd,Box::new((l,r))),
+    <l:Expr8> "&" <r:Expr7> => Expr::new(DefaultExpr::Binary(BinOp::BitwiseAnd,Box::new((l,r)))),
     Expr7,
 };
 
 Expr7: Expr = {
-    <l:Expr7> <o:BinOpEqs> <r:Expr6> => Expr::Binary(o,Box::new((l,r))),
+    <l:Expr7> <o:BinOpEqs> <r:Expr6> => Expr::new(DefaultExpr::Binary(o,Box::new((l,r)))),
     Expr6,
 };
 
 Expr6: Expr = {
-    <l:Expr6> <o:BinOpCmps> <r:Expr5> => Expr::Binary(o,Box::new((l,r))),
+    <l:Expr6> <o:BinOpCmps> <r:Expr5> => Expr::new(DefaultExpr::Binary(o,Box::new((l,r)))),
     Expr5,
 };
 
 Expr5: Expr = {
-    <l:Expr5> <o:BinOpShifts> <r:Expr4> => Expr::Binary(o,Box::new((l,r))),
+    <l:Expr5> <o:BinOpShifts> <r:Expr4> => Expr::new(DefaultExpr::Binary(o,Box::new((l,r)))),
     Expr4,
 };
 
 Expr4: Expr = {
-    <l:Expr4> <o:BinOpAddSub> <r:Expr3> => Expr::Binary(o,Box::new((l,r))),
+    <l:Expr4> <o:BinOpAddSub> <r:Expr3> => Expr::new(DefaultExpr::Binary(o,Box::new((l,r)))),
     Expr3,
 };
 
 Expr3: Expr = {
-    <l:Expr3> <o:BinOpMulDivMod> <r:Expr2> => Expr::Binary(o,Box::new((l,r))),
+    <l:Expr3> <o:BinOpMulDivMod> <r:Expr2> => Expr::new(DefaultExpr::Binary(o,Box::new((l,r)))),
     Expr2,
 };
 
@@ -242,11 +263,12 @@ Assign: AssignType = {
 }
 
 Term: Expr = {
-    "+"? <n:Num> => Expr::Number(n),
-    <o:UnOp> <t: Term> => Expr::Unary(o, Box::new(t)),
+    "+"? <Const> => Expr::new(DefaultExpr::Number(<>)),
+    <o:UnOp> <t: Term> => Expr::new(DefaultExpr::Unary(o, Box::new(t))),
     "(" <Expr> ")",
-    Ident => Expr::Var(Rc::new(<>)),
-    <n:Ident> "(" <p:Comma<Expr>> ")" => Expr::FunctionCall(n.into(), p),
+    "(" <t:Type> ")" <e: Term> => Expr::new(DefaultExpr::Cast(t, Box::new(e))),
+    Ident => Expr::new(DefaultExpr::Var(Rc::new(<>))),
+    <n:Ident> "(" <p:Comma<Expr>> ")" => Expr::new(DefaultExpr::FunctionCall(n.into(), p)),
 };
 
 UnOp: UnOp = {
@@ -255,8 +277,13 @@ UnOp: UnOp = {
     "!" => UnOp::Not
 };
 
-Num: i32 = {
-    r"[0-9]+" => i32::from_str(<>).unwrap()
+Const: Const = {
+    r"[0-9]+" => Const::Int(i16::from_str(<>).unwrap()),
+    r"[0-9]+[uU]" => {
+        let l = <>.len();
+        let n = &<>[..l-1];
+        Const::UInt(u16::from_str(n).unwrap())
+    },
 };
 
 Ident: String = {

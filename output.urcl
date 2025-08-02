@@ -7,65 +7,37 @@ MINSTACK 8
 IMM $2 0
 IMM $3 0
 CAL .main
-OUT %NUMB $1
+SBGE ..COMP_BLT_IN..PRINT_NUM..P_N $1 0
+OUT %TEXT 45
+..COMP_BLT_IN..PRINT_NUM..P_N
+ABS $2 $1
+OUT %NUMB $2
 HLT
-.howMany
+.main
 	PSH $2
 	MOV $2 $3
-	ADD $3 $3 0
+	ADD $3 $3 5
 	POP $1
 	POP $2
 	PSH $2
 	PSH $1
 	.lbl.gen.1.
-	LLOD $7 ..na.gen.called_x_times.1 0
-	ADD $7 $7 1
-	LSTR ..na.gen.called_x_times.1 0 $7
-	LLOD $7 ..na.gen.called_x_times.1 0
-	MOV $1 $7
-	MOV $3 $2
-	POP $2
-	RET
-.main
-	PSH $2
-	MOV $2 $3
-	ADD $3 $3 4
-	POP $1
-	POP $2
-	PSH $2
-	PSH $1
-	.lbl.gen.4.
-	MOV $7 0
+	NEG, $7 50
 	LSTR $2 1 $7
-	JMP .lbl.gen.5.
-	.lbl.gen.5.
 	LLOD $7 $2 1
-	SSETL $7 $7 99
+	MOV $7 $7
 	LSTR $2 2 $7
-	LLOD $7 $2 2
-	AND $7 $7 1
-	LSTR $2 2 $7
-	LLOD $7 $2 2
-	BRE .lbl.lbreak.1. $7 0
-	JMP .lbl.gen.7.
-	.lbl.lbreak.1.
-	CAL .howMany
-	MOV $7 $1
+	MOV $7 5
 	LSTR $2 3 $7
-	LLOD $7 $2 3
+	LLOD $7 $2 2
+	LLOD $8 $2 3
+	DIV $7 $7 $8
+	LSTR $2 4 $7
+	LLOD $7 $2 4
+	MOV $7 $7
+	LSTR $2 5 $7
+	LLOD $7 $2 5
 	MOV $1 $7
 	MOV $3 $2
 	POP $2
 	RET
-	.lbl.gen.7.
-	CAL .howMany
-	MOV $7 $1
-	LSTR $2 4 $7
-	JMP .lbl.lcont1.
-	.lbl.lcont1.
-	LLOD $7 $2 1
-	ADD $7 $7 1
-	LSTR $2 1 $7
-	JMP .lbl.gen.5.
-..na.gen.called_x_times.1
-	DW 0

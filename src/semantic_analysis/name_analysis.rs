@@ -48,7 +48,7 @@ impl Analyzer {
         Self { tmp_count: 0 }
     }
 
-    pub fn analyze(mut self, program: ast::Program) -> ast::Program {
+    pub fn analyze(mut self, program: ast::Program<ast::Expr>) -> ast::Program<ast::Expr> {
         let mut ctx = Context { mappings: HashMap::new() };
 
         ast::Program {
@@ -70,36 +70,37 @@ impl Analyzer {
         Rc::new(format!(".na.gen.{}.{}", old_ident, self.tmp_count))
     }
 
-    fn analyze_file_scope_var_decl(&mut self, decl: ast::VarDeclaration, context: &mut Context) -> ast::VarDeclaration {
+    fn analyze_file_scope_var_decl(&mut self, decl: ast::VarDeclaration<ast::Expr>, context: &mut Context) -> ast::VarDeclaration<ast::Expr> {
         self.add_new_name(decl.name.clone(), context, true);
 
         decl
     }
 
-    fn analyze_function(&mut self, function: ast::FunctionDecl, context: &mut Context) -> ast::FunctionDecl {
+    fn analyze_function(&mut self, function: ast::FunctionDecl<ast::Expr>, context: &mut Context) -> ast::FunctionDecl<ast::Expr> {
         let global = function.storage_class != Some(ast::StorageClass::Static);
         let name = self.add_new_name(function.name, context, global);
 
         let mut context = context.clone();
         let context = &mut context;
 
-        let params = function.params.into_iter().map(|param| {
+        let params = function.params.into_iter().map(|(ty, param)| {
             if let Some(item) = context.mappings.get(&param) && item.from_this_scope {
                 panic!("Cannot declare parameter with same name, {param}");
             }
 
-            self.add_new_name(param, context, false)
+            (ty, self.add_new_name(param, context, false))
         }).collect();
 
         ast::FunctionDecl {
             name,
+            ret_ty: function.ret_ty,
             params,
             block: function.block.map(|b|self.analyze_block(b, context)),
             storage_class: function.storage_class
         }
     }
 
-    fn analyze_decl(&mut self, decl: ast::Declaration, is_top_level: bool, context: &mut Context) -> ast::Declaration {
+    fn analyze_decl(&mut self, decl: ast::Declaration<ast::Expr>, is_top_level: bool, context: &mut Context) -> ast::Declaration<ast::Expr> {
         match decl {
             ast::Declaration::Var(var_decl) => {
                 ast::Declaration::Var(self.analyze_var_decl(var_decl, context))
@@ -114,7 +115,7 @@ impl Analyzer {
         }
     }
 
-    fn analyze_block(&mut self, block: ast::Block, context: &mut Context) -> ast::Block {
+    fn analyze_block(&mut self, block: ast::Block<ast::Expr>, context: &mut Context) -> ast::Block<ast::Expr> {
         ast::Block { statements: block.statements.into_iter().map(|stmt| {
             match stmt {
                 ast::BlockItem::Declaration(decl) => {
@@ -137,7 +138,7 @@ impl Analyzer {
         name
     }
 
-    fn analyze_var_decl(&mut self, var_decl: ast::VarDeclaration, context: &mut Context) -> ast::VarDeclaration {
+    fn analyze_var_decl(&mut self, var_decl: ast::VarDeclaration<ast::Expr>, context: &mut Context) -> ast::VarDeclaration<ast::Expr> {
         let is_extern = var_decl.storage_class == Some(ast::StorageClass::Extern);
         
         if let Some(item) = context.mappings.get(&var_decl.name)
@@ -155,10 +156,10 @@ impl Analyzer {
 
         let name = self.add_new_name(var_decl.name, context, false);
 
-        ast::VarDeclaration::new(name, var_decl.expr.map(|expr|self.analyze_expr(expr, context)), var_decl.storage_class)
+        ast::VarDeclaration::new(name, var_decl.ty, var_decl.expr.map(|expr|self.analyze_expr(expr, context)), var_decl.storage_class)
     }
 
-    fn analyze_statement(&mut self, statement: ast::Statement, context: &mut Context) -> ast::Statement {
+    fn analyze_statement(&mut self, statement: ast::Statement<ast::Expr>, context: &mut Context) -> ast::Statement<ast::Expr> {
         match statement {
             ast::Statement::Return(expr) => {
                 ast::Statement::Return(self.analyze_expr(expr, context))
@@ -223,50 +224,55 @@ impl Analyzer {
     } 
 
     fn analyze_expr(&mut self, expr: ast::Expr, context: &Context) -> ast::Expr {
-        match expr {
-            ast::Expr::Binary(ast::BinOp::Assign(assign_type), box (var, val)) => {
+        ast::Expr::new(match expr.0 {
+            ast::DefaultExpr::Binary(ast::BinOp::Assign(assign_type), box (var, val)) => {
                 let var = self.analyze_expr(var, context);
-                match var {
-                    ast::Expr::Var(_) => (),
-                    _ => panic!("Expected var, found {:?}", var)
+                match var.0 {
+                    ast::DefaultExpr::Var(_) => (),
+                    _ => panic!("Expected var, found {:?}", var.0)
                 }
 
                 let val = self.analyze_expr(val, context);
 
-                ast::Expr::Binary(ast::BinOp::Assign(assign_type), Box::new((var, val)))
+                ast::DefaultExpr::Binary(ast::BinOp::Assign(assign_type), Box::new((var, val)))
             },
-            ast::Expr::Binary(op, box (l, r)) => {
+            ast::DefaultExpr::Binary(op, box (l, r)) => {
                 let l = self.analyze_expr(l, context);
                 let r = self.analyze_expr(r, context);
 
-                ast::Expr::Binary(op, Box::new((l,r)))
+                ast::DefaultExpr::Binary(op, Box::new((l,r)))
             },
-            ast::Expr::Unary(op, box inner) => {
+            ast::DefaultExpr::Unary(op, box inner) => {
                 let inner = self.analyze_expr(inner, context);
 
-                ast::Expr::Unary(op, Box::new(inner))
+                ast::DefaultExpr::Unary(op, Box::new(inner))
             },
-            ast::Expr::Var(name) => {
+            ast::DefaultExpr::Var(name) => {
                 let name = self.get_ctx_item(&name, context);
 
-                ast::Expr::Var(name.ident.clone())
+                ast::DefaultExpr::Var(name.ident.clone())
             },
-            ast::Expr::Ternary(box (cond, l, r)) => {
+            ast::DefaultExpr::Ternary(box (cond, l, r)) => {
                 let cond = self.analyze_expr(cond, context);
                 let l = self.analyze_expr(l, context);
                 let r = self.analyze_expr(r, context);
 
-                ast::Expr::Ternary(Box::new((cond, l, r)))
+                ast::DefaultExpr::Ternary(Box::new((cond, l, r)))
             },
-            ast::Expr::FunctionCall(name, exprs) => {
+            ast::DefaultExpr::FunctionCall(name, exprs) => {
                 let name = self.get_ctx_item(&name, context);
 
                 let exprs = exprs.into_iter().map(|e|self.analyze_expr(e, context)).collect();
 
-                ast::Expr::FunctionCall(name.ident.clone(), exprs)
+                ast::DefaultExpr::FunctionCall(name.ident.clone(), exprs)
             },
+            ast::DefaultExpr::Cast(ty, box inner) => {
+                let inner = self.analyze_expr(inner, context);
 
-            ast::Expr::Number(_) => expr,
-        }
+                ast::DefaultExpr::Cast(ty, Box::new(inner))
+            }
+
+            ast::DefaultExpr::Number(_) => expr.0,
+        })
     }
 }

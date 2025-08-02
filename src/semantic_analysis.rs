@@ -4,7 +4,7 @@ mod name_analysis;
 mod loop_label;
 pub mod type_check;
 
-pub fn analyse(program: Program) -> (Program, type_check::SymbolTable) {
+pub fn analyse(program: Program<Expr>) -> (Program<TypedExpr>, type_check::SymbolTable) {
     let na = name_analysis::Analyzer::new();
     let mut ast = na.analyze(program);
 

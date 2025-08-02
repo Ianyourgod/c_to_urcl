@@ -3,7 +3,7 @@
 use std::fmt::Display;
 use crate::Ident;
 
-use crate::mir::mir_def::GenericBlockID;
+pub use crate::mir::mir_def::{GenericBlockID, StaticInit};
 
 #[derive(Debug, Clone)]
 pub struct Program<V>
@@ -19,9 +19,19 @@ where
     V: Display
 {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let print_num = 
+"SBGE ..COMP_BLT_IN..PRINT_NUM..P_N $1 0
+OUT %TEXT 45
+..COMP_BLT_IN..PRINT_NUM..P_N
+ABS $2 $1
+OUT %NUMB $2
+HLT
+";
+
+        let header_info = self.header_info;
+
         let mut out = format!(
-            "{}\n\nIMM $2 0\nIMM $3 0\nCAL .main\nOUT %NUMB $1\nHLT\n",
-            self.header_info
+            "{header_info}\n\nIMM $2 0\nIMM $3 0\nCAL .main\n{print_num}"
         );
 
         for func in &self.top_level_items {
@@ -41,7 +51,7 @@ where
     StaticVar {
         name: Ident,
         global: bool,
-        init: i32,
+        init: StaticInit,
     }
 }
 
@@ -139,6 +149,10 @@ pub enum Cond {
     SGreaterEqual,
     Equal,
     NotEqual,
+    LessThan,
+    GreaterThan,
+    LessEqual,
+    GreaterEqual,
 }
 
 impl Cond {
@@ -150,6 +164,10 @@ impl Cond {
             Cond::SGreaterThan => "SBRG",
             Cond::SLessEqual => "SBLE",
             Cond::SGreaterEqual => "SBGE",
+            Cond::LessThan => "BRL",
+            Cond::LessEqual => "BLE",
+            Cond::GreaterThan => "BRG",
+            Cond::GreaterEqual => "BGE",
         }.to_string()
     }
 
@@ -161,6 +179,10 @@ impl Cond {
             Cond::SGreaterEqual => "SSETGE",
             Cond::SLessThan => "SSETL",
             Cond::SLessEqual => "SSETLE",
+            Cond::LessThan => "SETL",
+            Cond::LessEqual => "SETLE",
+            Cond::GreaterThan => "SETG",
+            Cond::GreaterEqual => "SETGE"
         }.to_string()
     }
 }
@@ -171,6 +193,7 @@ pub enum Binop {
     Sub,
     Mul,
     SDiv,
+    Div,
     Mod,
     And,
     Or,
@@ -204,6 +227,7 @@ impl Display for Binop {
             Binop::Sub => "SUB",
             Binop::Mul => "MLT",
             Binop::SDiv => "SDIV",
+            Binop::Div => "DIV",
             Binop::Mod => "MOD",
             Binop::And => "AND",
             Binop::Or => "OR",
@@ -268,7 +292,7 @@ where
 
 #[derive(Debug, Clone)]
 pub enum Val {
-    Imm(i32),
+    Imm(i32), // this is i32 so that we can have i16 and u16 fine in here
     Reg(Reg),
     Label(Ident),
 }
@@ -310,7 +334,7 @@ impl Reg {
 
 #[derive(Debug, Clone)]
 pub enum PVal {
-    Imm(i32),
+    Imm(i32), // this is i32 so that we can have i16 and u16 fine in here
     Reg(Reg),
     Var(Ident),
     Label(Ident),

@@ -13,7 +13,7 @@ impl LoopLabeler {
         }
     }
 
-    pub fn label(&mut self, program: &mut ast::Program) {
+    pub fn label(&mut self, program: &mut ast::Program<ast::Expr>) {
         program.top_level_items.iter_mut().for_each(|f|{
             match f {
                 &mut ast::Declaration::Fn(ref mut f) => {
@@ -24,11 +24,11 @@ impl LoopLabeler {
         });
     }
 
-    fn label_function(&mut self, function: &mut ast::FunctionDecl) {
+    fn label_function(&mut self, function: &mut ast::FunctionDecl<ast::Expr>) {
         function.block.as_mut().map(|b|self.label_block(b));
     }
 
-    fn label_block(&mut self, block: &mut ast::Block) {
+    fn label_block(&mut self, block: &mut ast::Block<ast::Expr>) {
         block.statements.iter_mut().for_each(|stmt|{
             if let ast::BlockItem::Statement(stmt) = stmt {
                 self.label_stmt(stmt);
@@ -47,7 +47,7 @@ impl LoopLabeler {
         self.label_stack.pop();
     }
 
-    fn label_stmt(&mut self, stmt: &mut ast::Statement) {
+    fn label_stmt(&mut self, stmt: &mut ast::Statement<ast::Expr>) {
         match stmt {
             &mut ast::Statement::While(_, ref mut body, ref mut label) => {
                 let l = self.new_label();

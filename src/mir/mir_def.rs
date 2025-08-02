@@ -1,6 +1,8 @@
 use std::{collections::HashMap, fmt::Display};
 
 pub use crate::Ident;
+pub use crate::semantic_analysis::type_check::StaticInit;
+pub use crate::ast::{Const, Type};
 
 #[derive(Debug, Clone, Copy, Hash, PartialEq, Eq)]
 pub enum GenericBlockID {
@@ -46,7 +48,9 @@ pub struct Function {
 pub struct StaticVariable {
     pub name: Ident,
     pub global: bool,
-    pub init: i32,
+    #[allow(unused)]
+    pub ty: Type,
+    pub init: StaticInit
 }
 
 #[derive(Debug, Clone)]
@@ -175,6 +179,6 @@ pub enum Unop {
 
 #[derive(Debug, Clone)]
 pub enum Val {
-    Num(i32),
+    Num(Const),
     Var(Ident),
 }

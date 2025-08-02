@@ -2,7 +2,7 @@ use std::collections::HashMap;
 use std::rc::Rc;
 
 use crate::mir::mir_def;
-use crate::ast;
+use crate::ast::{self, TypedExpr};
 use crate::semantic_analysis::type_check::{IdentifierAttrs, InitialValue, SymbolTable, SymbolTableEntry};
 
 #[derive(Debug)]
@@ -19,7 +19,7 @@ impl<'s> Generator<'s> {
         }
     }
 
-    pub fn generate(mut self, ast: ast::Program) -> mir_def::Program {
+    pub fn generate(mut self, ast: ast::Program<TypedExpr>) -> mir_def::Program {
         let mut top_level: Vec<mir_def::TopLevel> = Vec::new();
         
         for f in ast.top_level_items {
@@ -38,12 +38,18 @@ impl<'s> Generator<'s> {
                         InitialValue::Initial(n) => { top_level.push(mir_def::TopLevel::Var(mir_def::StaticVariable {
                             name: name.clone(),
                             global,
-                            init: n
+                            init: n,
+                            ty: entry.ty.clone(),
                         })); },
                         InitialValue::Tentative => { top_level.push(mir_def::TopLevel::Var(mir_def::StaticVariable {
                             name: name.clone(),
                             global,
-                            init: 0
+                            init: match entry.ty {
+                                mir_def::Type::Fn { .. } => unreachable!(),
+                                mir_def::Type::Int => mir_def::StaticInit::IntInit(0),
+                                mir_def::Type::UInt => mir_def::StaticInit::UIntInit(0),
+                            },
+                            ty: entry.ty.clone(),
                         })); },
                         InitialValue::NoInit => continue,
                     }
@@ -57,7 +63,7 @@ impl<'s> Generator<'s> {
         }
     }
 
-    fn generate_function(&mut self, function: ast::FunctionDecl) -> Option<mir_def::Function> {
+    fn generate_function(&mut self, function: ast::FunctionDecl<TypedExpr>) -> Option<mir_def::Function> {
         let mut tmp_tmp_count = self.tmp_count;
         let fn_gen = FunctionGenerator::new(&mut tmp_tmp_count);
 
@@ -99,11 +105,11 @@ impl<'l> FunctionGenerator<'l> {
         mir_def::GenericBlock {
             id,
             instructions: Vec::new(),
-            terminator: mir_def::Terminator::Return(mir_def::Val::Num(0))
+            terminator: mir_def::Terminator::Return(mir_def::Val::Num(mir_def::Const::Int(0)))
         }
     }
 
-    pub fn generate(mut self, symbol_table: &mut SymbolTable, function: ast::FunctionDecl) -> Option<mir_def::Function> {
+    pub fn generate(mut self, symbol_table: &mut SymbolTable, function: ast::FunctionDecl<TypedExpr>) -> Option<mir_def::Function> {
         function.block.map(|block| {
             self.generate_block(block, symbol_table);
 
@@ -115,13 +121,13 @@ impl<'l> FunctionGenerator<'l> {
             mir_def::Function {
                 name: function.name,
                 global,
-                params: function.params,
+                params: function.params.into_iter().map(|(_,n)|n).collect(),
                 basic_blocks: self.cfg
             }
         })
     }
 
-    fn generate_block(&mut self, block: ast::Block, symbol_table: &mut SymbolTable) {
+    fn generate_block(&mut self, block: ast::Block<TypedExpr>, symbol_table: &mut SymbolTable) {
         for stmt in block.statements {
             match stmt {
                 ast::BlockItem::Declaration(decl) => {
@@ -134,14 +140,14 @@ impl<'l> FunctionGenerator<'l> {
         }
     }
 
-    fn generate_declaration(&mut self, decl: ast::Declaration, symbol_table: &mut SymbolTable) {
+    fn generate_declaration(&mut self, decl: ast::Declaration<TypedExpr>, symbol_table: &mut SymbolTable) {
         match decl {
             ast::Declaration::Var(v) => self.generate_var_decl(v, symbol_table),
             ast::Declaration::Fn(_) => ()
         }
     }
 
-    fn generate_var_decl(&mut self, decl: ast::VarDeclaration, symbol_table: &mut SymbolTable) {
+    fn generate_var_decl(&mut self, decl: ast::VarDeclaration<TypedExpr>, symbol_table: &mut SymbolTable) {
         if decl.storage_class.is_some() {
             return;
         }
@@ -155,7 +161,7 @@ impl<'l> FunctionGenerator<'l> {
         }
     }
 
-    fn generate_statement(&mut self, stmt: ast::Statement, symbol_table: &mut SymbolTable) {
+    fn generate_statement(&mut self, stmt: ast::Statement<TypedExpr>, symbol_table: &mut SymbolTable) {
         match stmt {
             ast::Statement::Return(expr) => {
                 self.current_block.terminator = mir_def::Terminator::Return(self.generate_expr(expr, symbol_table));
@@ -174,7 +180,7 @@ impl<'l> FunctionGenerator<'l> {
                     target: cond_false_label,
                     fail: cond_true_label,
                     src1: cond,
-                    src2: mir_def::Val::Num(0),
+                    src2: mir_def::Val::Num(mir_def::Const::Int(0)),
                     cond: mir_def::Cond::Equal
                 };
 
@@ -212,7 +218,7 @@ impl<'l> FunctionGenerator<'l> {
                     target: break_label,
                     fail: loop_label,
                     src1: cond,
-                    src2: mir_def::Val::Num(0),
+                    src2: mir_def::Val::Num(mir_def::Const::Int(0)),
                     cond: mir_def::Cond::Equal
                 };
 
@@ -244,7 +250,7 @@ impl<'l> FunctionGenerator<'l> {
                     target: break_label,
                     fail: loop_label,
                     src1: cond,
-                    src2: mir_def::Val::Num(0),
+                    src2: mir_def::Val::Num(mir_def::Const::Int(0)),
                     cond: mir_def::Cond::Equal
                 };
 
@@ -275,7 +281,7 @@ impl<'l> FunctionGenerator<'l> {
                         target: break_label,
                         fail: new_block,
                         src1: cond,
-                        src2: mir_def::Val::Num(0),
+                        src2: mir_def::Val::Num(mir_def::Const::Int(0)),
                         cond: mir_def::Cond::Equal
                     };
 
@@ -329,9 +335,9 @@ impl<'l> FunctionGenerator<'l> {
         Rc::new(format!("tmp.{}.", self.tmp_count))
     }
 
-    fn gen_tmp_var(&mut self, symbol_table: &mut SymbolTable) -> mir_def::Ident {
+    fn gen_tmp_var(&mut self, ty: mir_def::Type, symbol_table: &mut SymbolTable) -> mir_def::Ident {
         let name = self.gen_tmp_name();
-        symbol_table.insert(name.clone(), SymbolTableEntry::new(ast::Type::Int, IdentifierAttrs::Local));
+        symbol_table.insert(name.clone(), SymbolTableEntry::new(ty, IdentifierAttrs::Local));
         name
     }
 
@@ -348,11 +354,12 @@ impl<'l> FunctionGenerator<'l> {
         }
     }
 
-    fn generate_expr(&mut self, expr: ast::Expr, symbol_table: &mut SymbolTable) -> mir_def::Val {
-        match expr {
-            ast::Expr::Number(n) => mir_def::Val::Num(n),
-            ast::Expr::Binary(ast::BinOp::Assign(ast::AssignType::Normal), box (var, val)) => {
-                let var_name = match var { ast::Expr::Var(v) => v, _ => unreachable!() };
+    fn generate_expr(&mut self, expr: ast::TypedExpr, symbol_table: &mut SymbolTable) -> mir_def::Val {
+        let ty = expr.ty;
+        match expr.expr {
+            ast::DefaultExpr::Number(n) => mir_def::Val::Num(n),
+            ast::DefaultExpr::Binary(ast::BinOp::Assign(ast::AssignType::Normal), box (var, val)) => {
+                let var_name = match var.expr { ast::DefaultExpr::Var(v) => v, _ => unreachable!() };
 
                 let val = self.generate_expr(val, symbol_table);
 
@@ -363,8 +370,8 @@ impl<'l> FunctionGenerator<'l> {
 
                 mir_def::Val::Var(var_name)
             },
-            ast::Expr::Binary(ast::BinOp::Assign(assign_type), box (var, val)) => {
-                let var_name = match &var { ast::Expr::Var(v) => v.clone(), _ => unreachable!() };
+            ast::DefaultExpr::Binary(ast::BinOp::Assign(assign_type), box (var, val)) => {
+                let var_name = match &var.expr { ast::DefaultExpr::Var(v) => v.clone(), _ => unreachable!() };
 
                 let var_val = self.generate_expr(var, symbol_table);
                 let val = self.generate_expr(val, symbol_table);
@@ -391,23 +398,23 @@ impl<'l> FunctionGenerator<'l> {
 
                 mir_def::Val::Var(var_name)
             },
-            ast::Expr::Var(v) => mir_def::Val::Var(v),
-            ast::Expr::Binary(ast::BinOp::And, box (left, right)) => {
+            ast::DefaultExpr::Var(v) => mir_def::Val::Var(v),
+            ast::DefaultExpr::Binary(ast::BinOp::And, box (left, right)) => {
                 let false_id = self.gen_block_id();
                 let first_true_id = self.gen_block_id();
                 let true_id = self.gen_block_id();
 
                 let left = self.generate_expr(left, symbol_table);
 
-                let res = self.gen_tmp_var(symbol_table);
+                let res = self.gen_tmp_var(ast::Type::Int, symbol_table);
 
-                self.current_block.instructions.push(mir_def::Instruction::Copy { src: mir_def::Val::Num(0), dst: res.clone() });
+                self.current_block.instructions.push(mir_def::Instruction::Copy { src: mir_def::Val::Num(mir_def::Const::Int(0)), dst: res.clone() });
 
                 self.current_block.terminator = mir_def::Terminator::JumpCond {
                     target: first_true_id,
                     fail: false_id,
                     src1: left,
-                    src2: mir_def::Val::Num(0),
+                    src2: mir_def::Val::Num(mir_def::Const::Int(0)),
                     cond: mir_def::Cond::NotEqual
                 };
 
@@ -419,13 +426,13 @@ impl<'l> FunctionGenerator<'l> {
                     target: true_id,
                     fail: false_id,
                     src1: right,
-                    src2: mir_def::Val::Num(0),
+                    src2: mir_def::Val::Num(mir_def::Const::Int(0)),
                     cond: mir_def::Cond::NotEqual
                 };
 
                 self.new_block_w_id(true_id);
 
-                self.current_block.instructions.push(mir_def::Instruction::Copy { src: mir_def::Val::Num(1), dst: res.clone() });
+                self.current_block.instructions.push(mir_def::Instruction::Copy { src: mir_def::Val::Num(mir_def::Const::Int(1)), dst: res.clone() });
 
                 self.current_block.terminator = mir_def::Terminator::Jump { target: false_id };
 
@@ -433,22 +440,24 @@ impl<'l> FunctionGenerator<'l> {
 
                 mir_def::Val::Var(res)
             },
-            ast::Expr::Binary(ast::BinOp::Or, box (left, right)) => {
+            ast::DefaultExpr::Binary(ast::BinOp::Or, box (left, right)) => {
                 let false_id = self.gen_block_id();
                 let first_false_id = self.gen_block_id();
                 let true_id = self.gen_block_id();
 
+                let ty = mir_def::Type::Int;
+
                 let left = self.generate_expr(left, symbol_table);
 
-                let res = self.gen_tmp_var(symbol_table);
+                let res = self.gen_tmp_var(ty, symbol_table);
 
-                self.current_block.instructions.push(mir_def::Instruction::Copy { src: mir_def::Val::Num(1), dst: res.clone() });
+                self.current_block.instructions.push(mir_def::Instruction::Copy { src: mir_def::Val::Num(mir_def::Const::Int(1)), dst: res.clone() });
 
                 self.current_block.terminator = mir_def::Terminator::JumpCond {
                     target: first_false_id,
                     fail: true_id,
                     src1: left,
-                    src2: mir_def::Val::Num(0),
+                    src2: mir_def::Val::Num(mir_def::Const::Int(0)),
                     cond: mir_def::Cond::Equal
                 };
 
@@ -460,13 +469,13 @@ impl<'l> FunctionGenerator<'l> {
                     target: false_id,
                     fail: true_id,
                     src1: right,
-                    src2: mir_def::Val::Num(0),
+                    src2: mir_def::Val::Num(mir_def::Const::Int(0)),
                     cond: mir_def::Cond::Equal
                 };
 
                 self.new_block_w_id(false_id);
 
-                self.current_block.instructions.push(mir_def::Instruction::Copy { src: mir_def::Val::Num(0), dst: res.clone() });
+                self.current_block.instructions.push(mir_def::Instruction::Copy { src: mir_def::Val::Num(mir_def::Const::Int(0)), dst: res.clone() });
 
                 self.current_block.terminator = mir_def::Terminator::Jump { target: true_id };
 
@@ -474,7 +483,7 @@ impl<'l> FunctionGenerator<'l> {
 
                 mir_def::Val::Var(res)
             },
-            ast::Expr::Binary(op, box (left, right)) => {
+            ast::DefaultExpr::Binary(op, box (left, right)) => {
                 let op = match op {
                     ast::BinOp::Add => mir_def::Binop::Add,
                     ast::BinOp::Sub => mir_def::Binop::Sub,
@@ -500,7 +509,7 @@ impl<'l> FunctionGenerator<'l> {
                 let left = self.generate_expr(left, symbol_table);
                 let right = self.generate_expr(right, symbol_table);
 
-                let tmp_name = self.gen_tmp_var(symbol_table);
+                let tmp_name = self.gen_tmp_var(ty, symbol_table);
 
                 self.current_block.instructions.push(mir_def::Instruction::Binary {
                     op,
@@ -511,12 +520,12 @@ impl<'l> FunctionGenerator<'l> {
 
                 mir_def::Val::Var(tmp_name)
             },
-            ast::Expr::Unary(ast::UnOp::Not, box inner) => {
-                let res = self.gen_tmp_var(symbol_table);
+            ast::DefaultExpr::Unary(ast::UnOp::Not, box inner) => {
+                let res = self.gen_tmp_var(ty, symbol_table);
 
                 let inner = self.generate_expr(inner, symbol_table);
 
-                self.current_block.instructions.push(mir_def::Instruction::Copy { src: mir_def::Val::Num(0), dst: res.clone() });
+                self.current_block.instructions.push(mir_def::Instruction::Copy { src: mir_def::Val::Num(mir_def::Const::Int(0)), dst: res.clone() });
 
                 let set_true = self.gen_block_id();
                 let f = self.gen_block_id();
@@ -525,13 +534,13 @@ impl<'l> FunctionGenerator<'l> {
                     target: set_true,
                     fail: f,
                     src1: inner,
-                    src2: mir_def::Val::Num(0),
+                    src2: mir_def::Val::Num(mir_def::Const::Int(0)),
                     cond: mir_def::Cond::Equal
                 };
 
                 self.new_block_w_id(set_true);
 
-                self.current_block.instructions.push(mir_def::Instruction::Copy { src: mir_def::Val::Num(1), dst: res.clone() });
+                self.current_block.instructions.push(mir_def::Instruction::Copy { src: mir_def::Val::Num(mir_def::Const::Int(1)), dst: res.clone() });
 
                 self.current_block.terminator = mir_def::Terminator::Jump { target: f };
 
@@ -539,7 +548,7 @@ impl<'l> FunctionGenerator<'l> {
 
                 mir_def::Val::Var(res)
             },
-            ast::Expr::Unary(unop, box inner) => {
+            ast::DefaultExpr::Unary(unop, box inner) => {
                 let op = match unop {
                     ast::UnOp::Complement => mir_def::Unop::Complement,
                     ast::UnOp::Negate => mir_def::Unop::Negate,
@@ -549,7 +558,7 @@ impl<'l> FunctionGenerator<'l> {
 
                 let inner = self.generate_expr(inner, symbol_table);
 
-                let tmp_name = self.gen_tmp_var(symbol_table);
+                let tmp_name = self.gen_tmp_var(ty, symbol_table);
 
                 self.current_block.instructions.push(mir_def::Instruction::Unary {
                     op,
@@ -559,10 +568,10 @@ impl<'l> FunctionGenerator<'l> {
 
                 mir_def::Val::Var(tmp_name)
             },
-            ast::Expr::Ternary(box (cond, then_expr, else_expr)) => {
+            ast::DefaultExpr::Ternary(box (cond, then_expr, else_expr)) => {
                 let cond = self.generate_expr(cond, symbol_table);
 
-                let ret = self.gen_tmp_var(symbol_table);
+                let ret = self.gen_tmp_var(ty, symbol_table);
 
                 let true_label = self.gen_block_id();
                 let false_label = self.gen_block_id();
@@ -572,7 +581,7 @@ impl<'l> FunctionGenerator<'l> {
                     target: false_label,
                     fail: true_label,
                     src1: cond,
-                    src2: mir_def::Val::Num(0),
+                    src2: mir_def::Val::Num(mir_def::Const::Int(0)),
                     cond: mir_def::Cond::Equal
                 };
 
@@ -600,12 +609,26 @@ impl<'l> FunctionGenerator<'l> {
 
                 mir_def::Val::Var(ret)
             },
-            ast::Expr::FunctionCall(name, exprs) => {
+            ast::DefaultExpr::FunctionCall(name, exprs) => {
                 let args = exprs.into_iter().map(|e|self.generate_expr(e, symbol_table)).collect();
 
-                let dst = self.gen_tmp_var(symbol_table);
+                let dst = self.gen_tmp_var(ty, symbol_table);
 
                 self.current_block.instructions.push(mir_def::Instruction::FunctionCall { name, args, dst: dst.clone() });
+
+                mir_def::Val::Var(dst)
+            },
+            ast::DefaultExpr::Cast(t, expr) => {
+                let expr_ty = &expr.ty;
+                if t == *expr_ty {
+                    return self.generate_expr(*expr, symbol_table);
+                }
+
+                let v = self.generate_expr(*expr, symbol_table);
+
+                let dst = self.gen_tmp_var(t.clone(), symbol_table);
+
+                self.current_block.instructions.push(mir_def::Instruction::Copy { src: v, dst: dst.clone() });
 
                 mir_def::Val::Var(dst)
             }
