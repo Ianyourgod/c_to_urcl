@@ -2,7 +2,7 @@ use std::collections::{HashSet, VecDeque};
 
 use crate::urcl_gen::asm;
 use crate::mir::mir_def;
-use crate::semantic_analysis::type_check::SymbolTable;
+use crate::semantic_analysis::type_check::{IdentifierAttrs, SymbolTable};
 
 pub struct ASMGenerator<'a> {
     pub symbol_table: &'a SymbolTable,
@@ -172,6 +172,27 @@ impl<'a> ASMGenerator<'a> {
                     asm::Instr::Mov { src, dst: asm::PVal::Var(dst) }
                 );
             },
+            mir_def::Instruction::GetAddress { src, dst } => {
+                let entry = self.symbol_table.get(&src).unwrap();
+
+                match entry.attrs {
+                    IdentifierAttrs::Fn { .. } => unreachable!(),
+                    IdentifierAttrs::Local => {
+                        // lea... for now...
+                        instructions.push(asm::Instr::Lea {
+                            src: asm::PVal::Var(src),
+                            dst: asm::PVal::Var(dst)
+                        });
+                    }
+                    IdentifierAttrs::Static { .. } => {
+                        let v = asm::PVal::Label(src);
+                        instructions.push(asm::Instr::Mov {
+                            src: v,
+                            dst: asm::PVal::Var(dst)
+                        })
+                    }
+                }
+            }
             mir_def::Instruction::FunctionCall { name, args, dst } => {
                 // TODO! maybe for iris mode, reserve a few registers for arguments so we can avoid pushing/popping everything?
                 
@@ -183,6 +204,26 @@ impl<'a> ASMGenerator<'a> {
                 instructions.push(asm::Instr::Call(name));
 
                 instructions.push(asm::Instr::Mov { src: asm::Reg::pval(1), dst: asm::PVal::Var(dst) });
+            },
+            mir_def::Instruction::Load { src_ptr, dst } => {
+                // TODO! use the normal lod instr for this
+                let src = self.val_to_asm(src_ptr, instructions);
+                instructions.push(asm::Instr::LLod {
+                    src,
+                    dst: asm::PVal::Var(dst),
+                    offset: asm::PVal::Imm(0)
+                })
+            },
+            mir_def::Instruction::Store { src, dst_ptr } => {
+                // TODO! use the normal str instr for this
+                let src = self.val_to_asm(src, instructions);
+                let dst = self.val_to_asm(dst_ptr, instructions);
+
+                instructions.push(asm::Instr::LStr {
+                    src,
+                    offset: asm::PVal::Imm(0),
+                    dst
+                });
             }
         }
     }

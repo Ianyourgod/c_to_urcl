@@ -169,6 +169,15 @@ impl TypeChecker {
 
     fn typecheck_file_scope_var_decl(&mut self, var_decl: ast::VarDeclaration<ast::Expr>) -> ast::VarDeclaration<TypedExpr> {
         let (mut initial_value, init_is_const, expr) = if let Some(ast::Expr(DefaultExpr::Number(n))) = &var_decl.expr {
+            if var_decl.ty.is_pointer_type() {
+                if match n {
+                    ast::Const::Int(n) => *n != 0,
+                    ast::Const::UInt(n) => *n != 0,
+                } {
+                    panic!("Cannot initialize a pointer to a non-null value");
+                }
+            }
+
             (InitialValue::Initial(StaticInit::from_const(*n)), true, Some(TypedExpr::new(DefaultExpr::Number(*n), n.to_type())))
         } else if var_decl.expr.is_none() {
             (if var_decl.storage_class == Some(ast::StorageClass::Extern) {
@@ -252,6 +261,9 @@ impl TypeChecker {
         let attrs = IdentifierAttrs::Local;
         self.symbol_table.insert(var_decl.name.clone(), SymbolTableEntry::new(Type::Int, attrs));
         let expr = var_decl.expr.map(|e|self.typecheck_expr(e));
+
+        let expr = expr.map(|e|self.convert_by_assignment(e, &var_decl.ty));
+
         return ast::VarDeclaration::new(var_decl.name, var_decl.ty, expr, var_decl.storage_class);
     }
 
@@ -286,7 +298,7 @@ impl TypeChecker {
             Statement::Return(expr) => {
                 let e = self.typecheck_expr(expr);
 
-                let expr = self.convert_to(e, &self.current_ret_ty);
+                let expr = self.convert_by_assignment(e, &self.current_ret_ty);
 
                 Statement::Return(expr)
             },
@@ -355,20 +367,40 @@ impl TypeChecker {
 
                 let params: Vec<TypedExpr> = params.into_iter().zip(params_ty.clone()).map(|(p, ty)|{
                     let e = self.typecheck_expr(p);
-                    self.convert_to(e, &ty)
+                    self.convert_by_assignment(e, &ty)
                 }).collect();
 
                 TypedExpr::new(DefaultExpr::FunctionCall(name, params), ret_ty)
             },
             DefaultExpr::Binary(ast::BinOp::Assign(assign_ty), box (left, right)) => {
                 let left = self.typecheck_expr(left);
+
+                if !self.is_lvalue(&left) {
+                    panic!("Cannot assign to a non-lvalue")
+                }
+
                 let right = self.typecheck_expr(right);
 
                 let left_ty = left.ty.clone();
-                let right = self.convert_to(right, &left_ty);
+                let right = self.convert_by_assignment(right, &left_ty);
 
                 TypedExpr::new(
                     DefaultExpr::Binary(ast::BinOp::Assign(assign_ty), Box::new((left, right))), left_ty)
+            },
+            DefaultExpr::Binary(op @ (ast::BinOp::Equal | ast::BinOp::NotEqual), box (left, right)) => {
+                let left = self.typecheck_expr(left);
+                let right = self.typecheck_expr(right);
+
+                let common_type = if left.ty.is_pointer_type() || right.ty.is_pointer_type() {
+                    self.get_common_pointer_type(&left, &right)
+                } else {
+                    left.ty.get_common_type(&right.ty)
+                }.clone();
+
+                let left = self.convert_to(left, &common_type);
+                let right = self.convert_to(right, &common_type);
+
+                TypedExpr::new(DefaultExpr::Binary(op, Box::new((left, right))), ast::Type::Int)
             },
             DefaultExpr::Binary(op, box (left, right)) => {
                 let left = self.typecheck_expr(left);
@@ -387,13 +419,41 @@ impl TypeChecker {
 
                 TypedExpr::new(DefaultExpr::Binary(op, Box::new((left, right))), ty)
             },
+            DefaultExpr::Unary(ast::UnOp::Not, box inner) => {
+                let inner = self.typecheck_expr(inner);
+
+                let ty = Type::Int;
+
+                TypedExpr::new(DefaultExpr::Unary(ast::UnOp::Not, Box::new(inner)), ty)
+            },
+            DefaultExpr::Unary(ast::UnOp::Dereference, box inner) => {
+                let inner = self.typecheck_expr(inner);
+
+                match &inner.ty {
+                    Type::Pointer(ty) => {
+                        let ty = (**ty).clone();
+                        TypedExpr::new(DefaultExpr::Unary(ast::UnOp::Dereference, Box::new(inner)), ty)
+                    },
+                    _ => panic!("Cannot deref non-pointer type")
+                }
+            },
+            DefaultExpr::Unary(ast::UnOp::AddressOf, box inner) => {
+                let inner = self.typecheck_expr(inner);
+                if !self.is_lvalue(&inner) {
+                    panic!("Cannot get the address of a non-lvalue");
+                }
+
+                let ty = Type::Pointer(Box::new(inner.ty.clone()));
+
+                TypedExpr::new(DefaultExpr::Unary(ast::UnOp::AddressOf, Box::new(inner)), ty)
+                
+            },
             DefaultExpr::Unary(op, box inner) => {
                 let inner = self.typecheck_expr(inner);
 
-                let ty = match op {
-                    ast::UnOp::Not => Type::Int,
-                    _ => inner.ty.clone()
-                };
+                let ty = inner.ty.clone();
+
+                if ty.is_pointer_type() { panic!("Cannot negate or complement a pointer"); }
 
                 TypedExpr::new(DefaultExpr::Unary(op, Box::new(inner)), ty)
             },
@@ -410,10 +470,16 @@ impl TypeChecker {
                 let then_expr = self.typecheck_expr(then_expr);
                 let else_expr = self.typecheck_expr(else_expr);
 
-                let then_ty = then_expr.ty.clone();
-                let else_expr = self.convert_to(else_expr, &then_ty);
+                let common_type = if then_expr.ty.is_pointer_type() || else_expr.ty.is_pointer_type() {
+                    self.get_common_pointer_type(&then_expr, &else_expr)
+                } else {
+                    then_expr.ty.get_common_type(&else_expr.ty)
+                }.clone();
 
-                TypedExpr::new(DefaultExpr::Ternary(Box::new((cond, then_expr, else_expr))), then_ty)
+                let then_expr = self.convert_to(then_expr, &common_type);
+                let else_expr = self.convert_to(else_expr, &common_type);
+
+                TypedExpr::new(DefaultExpr::Ternary(Box::new((cond, then_expr, else_expr))), common_type)
             },
             DefaultExpr::Cast(t, box inner) => {
                 let inner = self.typecheck_expr(inner);
@@ -423,11 +489,64 @@ impl TypeChecker {
         }
     }
 
+    fn is_lvalue(&self, expr: &TypedExpr) -> bool {
+        match expr.expr {
+            DefaultExpr::Var(_) => true,
+            DefaultExpr::Unary(ast::UnOp::Dereference, ref inner) => {
+                return self.is_lvalue(&inner)
+            },
+            _ => false
+        }
+    }
+
     fn convert_to(&self, expr: TypedExpr, ty: &Type) -> TypedExpr {
         if expr.ty == *ty {
             return expr;
         }
 
         return TypedExpr::new(DefaultExpr::Cast(ty.clone(), Box::new(expr)), ty.clone())
+    }
+
+    fn is_null_pointer_constant(&self, expr: &TypedExpr) -> bool {
+        match expr.expr {
+            DefaultExpr::Number(c) => {
+                match c {
+                    ast::Const::Int(0)   |
+                    ast::Const::UInt(0) => true,
+                    _ => false,
+                }
+            },
+            _ => false
+        }
+    }
+
+    fn get_common_pointer_type<'a>(&self, e1: &'a TypedExpr, e2: &'a TypedExpr) -> &'a Type {
+        if e1.ty == e2.ty {
+            return &e1.ty;
+        }
+
+        if self.is_null_pointer_constant(e1) {
+            return &e2.ty;
+        }
+
+        if self.is_null_pointer_constant(e2) {
+            return &e1.ty;
+        }
+
+        panic!("Expressions have incompatible types");
+    }
+
+    fn convert_by_assignment(&self, expr: TypedExpr, ty: &Type) -> TypedExpr {
+        if expr.ty == *ty {
+            return expr;
+        }
+
+        if (expr.ty.is_arithmetic() && ty.is_arithmetic()) ||
+           (self.is_null_pointer_constant(&expr) && ty.is_pointer_type())
+        {
+            return self.convert_to(expr, ty);
+        }
+
+        panic!("Cannot convert type");
     }
 }

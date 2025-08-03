@@ -7,11 +7,6 @@ pub Program: Program<Expr> = {
     Declaration* => Program::new(<>)
 };
 
-FunctionDecl: FunctionDecl<Expr> = {
-    <tas:TypeAndStorageClass> <n:Ident> "(" <p:ParamList> ")" <b:Block> => FunctionDecl::new(n, tas.0, p,Some(b), tas.1),
-    <tas:TypeAndStorageClass> <n:Ident> "(" <p:ParamList> ")" ";" => FunctionDecl::new(n, tas.0, p,None, tas.1),
-};
-
 Comma<T>: Vec<T> = {
     <mut v:(<T> ",")*> <e:T?> => match e {
         None => v,
@@ -22,18 +17,8 @@ Comma<T>: Vec<T> = {
     }
 };
 
-ParamList: Vec<(Type, String)> = {
-    "void" => Vec::new(),
-    Comma<(Type Ident)> => <>,
-}
-
 Block: Block<Expr> = {
     "{" <s:BlockItem*> "}" => Block::new(s)
-}
-
-Declaration: Declaration<Expr> = {
-    VarDeclaration => Declaration::Var(<>),
-    FunctionDecl => Declaration::Fn(<>),
 }
 
 BlockItem: BlockItem<Expr> = {
@@ -73,13 +58,14 @@ NormalStatement: Statement<Expr> = {
 }
 
 ForInit: ForInit<Expr> = {
-    VarDeclaration => ForInit::Decl(<>),
+    Declaration => {
+        match <> {
+            Declaration::Var(v) => ForInit::Decl(v),
+            Declaration::Fn(_) => panic!("Cannot have a function declaration inside a for loop")
+        }
+    },
     <e:Expr> ";" => ForInit::Expr(e),
     ";" => ForInit::None,
-}
-
-VarDeclaration: VarDeclaration<Expr> = {
-    <tas:TypeAndStorageClass> <n:Ident> <e:("=" <Expr>)?> ";" => VarDeclaration::new(Rc::new(n), tas.0, e, tas.1),
 }
 
 Specifier: Specifier = {
@@ -139,6 +125,70 @@ TypeAndStorageClass: (Type, Option<StorageClass>) = {
         return (ty, storage_class)
     }
 };
+
+SimpleDeclarator: Declarator = {
+    Ident => Declarator::Ident(<>),
+    "(" <Declarator> ")" => <>
+};
+
+DirectDeclarator: Declarator = {
+    SimpleDeclarator => <>,
+    <d: SimpleDeclarator> <p: ParamList> => Declarator::Fn(p, Box::new(d))
+};
+
+Declarator: Declarator = {
+    "*" <Declarator> => Declarator::Pointer(Box::new(<>)),
+    DirectDeclarator => <>,
+};
+
+ParamList: Vec<ParamInfo> = {
+    "(" "void" ")" => Vec::new(),
+    "(" <Comma<Param>> ")" => <>
+};
+
+Param: ParamInfo = {
+    <t:Type> <d:Declarator> => ParamInfo::new(t, d)
+};
+
+Declaration: Declaration<Expr> = {
+    <tas:TypeAndStorageClass> <d:Declarator> "=" <e:Expr> ";" => {
+        let ty = tas.0;
+        let storage_class = tas.1;
+        let (name, ty, param_names) = d.process(ty);
+        
+        if let Type::Fn { params, ret_ty } = ty {
+            panic!("Cannot assign to a variable")
+        } else {
+            Declaration::Var(VarDeclaration::new(name, ty, Some(e), storage_class))
+        }
+    },
+    <tas:TypeAndStorageClass> <d:Declarator> <block:Block> => {
+        let ty = tas.0;
+        let storage_class = tas.1;
+        let (name, ty, param_names) = d.process(ty);
+        
+        if let Type::Fn { params, ret_ty } = ty {
+            let params = params.into_iter().zip(param_names).collect();
+
+            Declaration::Fn(FunctionDecl::new(name, *ret_ty, params, Some(block), storage_class))
+        } else {
+            panic!("Variable cannot have a block")
+        }
+    },
+    <tas:TypeAndStorageClass> <d:Declarator> ";" => {
+        let ty = tas.0;
+        let storage_class = tas.1;
+        let (name, ty, param_names) = d.process(ty);
+        
+        if let Type::Fn { params, ret_ty } = ty {
+            let params = params.into_iter().zip(param_names).collect();
+
+            Declaration::Fn(FunctionDecl::new(name, *ret_ty, params, None, storage_class))
+        } else {
+            Declaration::Var(VarDeclaration::new(name, ty, None, storage_class))
+        }
+    }
+}
 
 SpecifierList: Vec<Specifier> = {
     Specifier+ => <>
@@ -266,15 +316,32 @@ Term: Expr = {
     "+"? <Const> => Expr::new(DefaultExpr::Number(<>)),
     <o:UnOp> <t: Term> => Expr::new(DefaultExpr::Unary(o, Box::new(t))),
     "(" <Expr> ")",
-    "(" <t:Type> ")" <e: Term> => Expr::new(DefaultExpr::Cast(t, Box::new(e))),
-    Ident => Expr::new(DefaultExpr::Var(Rc::new(<>))),
-    <n:Ident> "(" <p:Comma<Expr>> ")" => Expr::new(DefaultExpr::FunctionCall(n.into(), p)),
+    "(" <t:Type> <d:AbstractDeclarator?> ")" <e: Term> => {
+        let ty = if let Some(d) = d { d.process(t) } else { t };
+        Expr::new(DefaultExpr::Cast(ty, Box::new(e)))
+    },
+    Ident => Expr::new(DefaultExpr::Var(<>)),
+    <n:Ident> "(" <p:Comma<Expr>> ")" => Expr::new(DefaultExpr::FunctionCall(n, p)),
 };
 
 UnOp: UnOp = {
     "-" => UnOp::Negate,
     "~" => UnOp::Complement,
-    "!" => UnOp::Not
+    "!" => UnOp::Not,
+    "*" => UnOp::Dereference,
+    "&" => UnOp::AddressOf,
+};
+
+AbstractDeclarator: AbstractDeclarator = {
+    "*" <AbstractDeclarator?> => {
+        let decl = if let Some(d) = <> { d } else { AbstractDeclarator::Base };
+        AbstractDeclarator::Pointer(Box::new(decl))
+    },
+    DirectAbstractDeclarator => <>,
+};
+
+DirectAbstractDeclarator: AbstractDeclarator = {
+
 };
 
 Const: Const = {
@@ -286,6 +353,6 @@ Const: Const = {
     },
 };
 
-Ident: String = {
-    r"[a-zA-Z_][a-zA-Z0-9_]*" => <>.to_string(),
+Ident: Ident = {
+    r"[a-zA-Z_][a-zA-Z0-9_]*" => Rc::new(<>.to_string()),
 }

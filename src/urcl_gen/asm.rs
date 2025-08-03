@@ -117,7 +117,7 @@ where
     },
     LLod {
         src: V,
-        dst: Reg,
+        dst: V,
         offset: V,
     },
     LStr {
@@ -133,6 +133,10 @@ where
         src1: V,
         src2: V,
         cond: Cond,
+    },
+    Lea {
+        src: V,
+        dst: V,
     },
     Label(GenericBlockID),
     Push(V),
@@ -283,6 +287,11 @@ where
             },
             Instr::Call(name) => {
                 format!("CAL .{name}")
+            },
+
+
+            Instr::Lea { src, dst } => {
+                format!("__LEA {dst} {src} // I SHOULD BE DELETED BY RP PASS!!!!")
             }
         };
 
@@ -387,8 +396,8 @@ impl HeaderInfo {
         Self {
             bits: 16,
             min_reg: 8,
-            min_heap: 16, // since *our* stack is on the *heap*, we need some stuff
-            min_stack: 8, // this is basically only used for fn calls
+            min_heap: 256, // since *our* stack is on the *heap*, we need some stuff
+            min_stack: 16, // ummmm we're just gonna say 16
             von_neumann: false,
         }
     }

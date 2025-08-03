@@ -1,5 +1,11 @@
+int x = 20;
+
+int b(int *a) {
+    *a = 3;
+}
+
 int main(void) {
-    int x = ((unsigned int) -50) / 5;
+    b(&x);
 
     return x;
 }

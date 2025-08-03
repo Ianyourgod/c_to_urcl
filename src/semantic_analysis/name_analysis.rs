@@ -70,8 +70,10 @@ impl Analyzer {
         Rc::new(format!(".na.gen.{}.{}", old_ident, self.tmp_count))
     }
 
-    fn analyze_file_scope_var_decl(&mut self, decl: ast::VarDeclaration<ast::Expr>, context: &mut Context) -> ast::VarDeclaration<ast::Expr> {
+    fn analyze_file_scope_var_decl(&mut self, mut decl: ast::VarDeclaration<ast::Expr>, context: &mut Context) -> ast::VarDeclaration<ast::Expr> {
         self.add_new_name(decl.name.clone(), context, true);
+
+        decl.expr = decl.expr.map(|e|self.analyze_expr(e, context));
 
         decl
     }
@@ -227,11 +229,6 @@ impl Analyzer {
         ast::Expr::new(match expr.0 {
             ast::DefaultExpr::Binary(ast::BinOp::Assign(assign_type), box (var, val)) => {
                 let var = self.analyze_expr(var, context);
-                match var.0 {
-                    ast::DefaultExpr::Var(_) => (),
-                    _ => panic!("Expected var, found {:?}", var.0)
-                }
-
                 let val = self.analyze_expr(val, context);
 
                 ast::DefaultExpr::Binary(ast::BinOp::Assign(assign_type), Box::new((var, val)))

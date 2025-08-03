@@ -2,7 +2,7 @@
 
 use std::rc::Rc;
 
-use crate::Ident;
+pub use crate::Ident;
 
 #[derive(Debug, Clone)]
 pub struct Program<E> {
@@ -27,11 +27,11 @@ pub struct FunctionDecl<E> {
 }
 
 impl<E> FunctionDecl<E> {
-    pub fn new(name: String, ret_ty: Type, params: Vec<(Type, String)>, block: Option<Block<E>>, storage_class: Option<StorageClass>) -> Self {
+    pub fn new(name: Rc<String>, ret_ty: Type, params: Vec<(Type, Ident)>, block: Option<Block<E>>, storage_class: Option<StorageClass>) -> Self {
         Self {
-            name: Rc::new(name),
+            name: name,
             ret_ty,
-            params: params.into_iter().map(|(t, s)|(t,Rc::new(s))).collect(),
+            params,
             block,
             storage_class
         }
@@ -147,6 +147,8 @@ pub enum UnOp {
     Complement,
     Negate,
     Not,
+    Dereference,
+    AddressOf,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -207,6 +209,7 @@ pub enum Type {
         params: Vec<Type>,
         ret_ty: Box<Type>,
     },
+    Pointer(Box<Type>),
 }
 
 impl Type {
@@ -243,11 +246,25 @@ impl Type {
 
     pub fn is_signed(&self) -> bool {
         match self {
+            Type::Pointer(_) |
             Type::Fn { .. } |
             Type::UInt     => false,
 
             Type::Int => true
         }
+    }
+
+    pub fn is_arithmetic(&self) -> bool {
+        match self {
+            Type::Int | Type::UInt => true,
+
+            Type::Fn { .. } |
+            Type::Pointer(_) => false,
+        }
+    }
+
+    pub fn is_pointer_type(&self) -> bool {
+        if let Type::Pointer(_) = self { true } else { false }
     }
 }
 
@@ -277,6 +294,72 @@ impl Const {
         match self {
             Self::Int(_) => Type::Int,
             Self::UInt(_) => Type::UInt
+        }
+    }
+}
+
+
+
+#[derive(Debug, Clone)]
+pub enum Declarator {
+    Ident(Ident),
+    Pointer(Box<Declarator>),
+    Fn(Vec<ParamInfo>, Box<Declarator>),
+}
+
+impl Declarator {
+    pub fn process(self, base_type: Type) -> (Ident, Type, Vec<Ident>) {
+        match self {
+            Declarator::Ident(n) => (n, base_type, Vec::new()),
+            Declarator::Pointer(d) => d.process(Type::Pointer(Box::new(base_type))),
+            Declarator::Fn(params, d) => {
+                match *d {
+                    Declarator::Ident(name) => {
+                        let (names, types): (Vec<_>, Vec<_>) = params.into_iter().map(|param| {
+                            let (name, t, _) = param.declarator.process(param.ty);
+                            if let Type::Fn { .. } = t {
+                                panic!("Function pointers are not yet supported");
+                            }
+                            (name, t)
+                        }).unzip();
+
+                        (name, Type::Fn { params: types, ret_ty: Box::new(base_type) }, names)
+                    },
+                    _ => panic!("Ummm this should be the top level...")
+                }
+            }
+        }
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct ParamInfo {
+    pub ty: Type,
+    pub declarator: Declarator
+}
+
+impl ParamInfo {
+    pub fn new(ty: Type, declarator: Declarator) -> Self {
+        Self {
+            ty,
+            declarator
+        }
+    }
+}
+
+#[derive(Debug, Clone)]
+pub enum AbstractDeclarator {
+    Pointer(Box<AbstractDeclarator>),
+    Base,
+}
+
+impl AbstractDeclarator {
+    pub fn process(self, base_type: Type) -> Type {
+        match self {
+            AbstractDeclarator::Pointer(box p) => {
+                p.process(Type::Pointer(Box::new(base_type)))
+            },
+            AbstractDeclarator::Base => base_type
         }
     }
 }

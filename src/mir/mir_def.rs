@@ -112,7 +112,19 @@ pub enum Instruction {
         name: Ident,
         args: Vec<Val>,
         dst: Ident,
-    }
+    },
+    GetAddress {
+        src: Ident,
+        dst: Ident,
+    },
+    Load {
+        src_ptr: Val,
+        dst: Ident,
+    },
+    Store {
+        src: Val,
+        dst_ptr: Val,
+    },
 }
 
 #[derive(Debug, Clone)]

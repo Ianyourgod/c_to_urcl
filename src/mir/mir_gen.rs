@@ -48,6 +48,7 @@ impl<'s> Generator<'s> {
                                 mir_def::Type::Fn { .. } => unreachable!(),
                                 mir_def::Type::Int => mir_def::StaticInit::IntInit(0),
                                 mir_def::Type::UInt => mir_def::StaticInit::UIntInit(0),
+                                mir_def::Type::Pointer(_) => mir_def::StaticInit::UIntInit(0),
                             },
                             ty: entry.ty.clone(),
                         })); },
@@ -358,6 +359,14 @@ impl<'l> FunctionGenerator<'l> {
         let ty = expr.ty;
         match expr.expr {
             ast::DefaultExpr::Number(n) => mir_def::Val::Num(n),
+            ast::DefaultExpr::Binary(ast::BinOp::Assign(ast::AssignType::Normal), box (TypedExpr{expr:ast::DefaultExpr::Unary(ast::UnOp::Dereference, box inner),..}, val)) => {
+                let ptr = self.generate_expr(inner, symbol_table);
+                let val = self.generate_expr(val, symbol_table);
+
+                self.current_block.instructions.push(mir_def::Instruction::Store { src: val.clone(), dst_ptr: ptr });
+
+                val
+            }
             ast::DefaultExpr::Binary(ast::BinOp::Assign(ast::AssignType::Normal), box (var, val)) => {
                 let var_name = match var.expr { ast::DefaultExpr::Var(v) => v, _ => unreachable!() };
 
@@ -370,8 +379,44 @@ impl<'l> FunctionGenerator<'l> {
 
                 mir_def::Val::Var(var_name)
             },
-            ast::DefaultExpr::Binary(ast::BinOp::Assign(assign_type), box (var, val)) => {
-                let var_name = match &var.expr { ast::DefaultExpr::Var(v) => v.clone(), _ => unreachable!() };
+            ast::DefaultExpr::Binary(ast::BinOp::Assign(assign_type), box (TypedExpr {expr:ast::DefaultExpr::Unary(ast::UnOp::Dereference, box inner),..}, val)) => {
+                let ty = if let ast::Type::Pointer(ref t) = inner.ty { (**t).clone() } else { unreachable!() };
+
+                let ptr = self.generate_expr(inner, symbol_table);
+
+                let var_val = self.gen_tmp_var(ty.clone(), symbol_table);
+                let val = self.generate_expr(val, symbol_table);
+
+                self.current_block.instructions.push(mir_def::Instruction::Binary {
+                    op: match assign_type {
+                        ast::AssignType::Add => mir_def::Binop::Add,
+                        ast::AssignType::Sub => mir_def::Binop::Sub,
+                        ast::AssignType::Mul => mir_def::Binop::Mul,
+                        ast::AssignType::Div => mir_def::Binop::Div,
+                        ast::AssignType::Mod => mir_def::Binop::Mod,
+                        ast::AssignType::LeftShift => mir_def::Binop::LeftShift,
+                        ast::AssignType::RightShift => mir_def::Binop::RightShift,
+                        ast::AssignType::BitwiseAnd => mir_def::Binop::BitwiseAnd,
+                        ast::AssignType::BitwiseOr => mir_def::Binop::BitwiseOr,
+                        ast::AssignType::BitwiseXor => mir_def::Binop::BitwiseXor,
+
+                        ast::AssignType::Normal => unreachable!()
+                    },
+                    src1: mir_def::Val::Var(var_val.clone()),
+                    src2: val,
+                    dst: var_val.clone()
+                });
+
+                self.current_block.instructions.push(mir_def::Instruction::Store {
+                    src: mir_def::Val::Var(var_val.clone()),
+                    dst_ptr: ptr
+                });
+
+                mir_def::Val::Var(var_val)
+            },
+            ast::DefaultExpr::Binary(ast::BinOp::Assign(assign_type), box (ref var @ TypedExpr{expr:ast::DefaultExpr::Var(ref var_name), ..}, val)) => {
+                let var_name = var_name.clone();
+                let var = var.clone(); // idk man, its too late
 
                 let var_val = self.generate_expr(var, symbol_table);
                 let val = self.generate_expr(val, symbol_table);
@@ -548,11 +593,42 @@ impl<'l> FunctionGenerator<'l> {
 
                 mir_def::Val::Var(res)
             },
+            ast::DefaultExpr::Unary(ast::UnOp::Dereference, box inner) => {
+                let ptr = self.generate_expr(inner, symbol_table);
+
+                let res = self.gen_tmp_var(ty, symbol_table);
+
+                self.current_block.instructions.push(mir_def::Instruction::Load {
+                    src_ptr: ptr,
+                    dst: res.clone()
+                });
+
+                mir_def::Val::Var(res)
+            },
+            ast::DefaultExpr::Unary(ast::UnOp::AddressOf, box ast::TypedExpr{expr:ast::DefaultExpr::Unary(ast::UnOp::Dereference, box inner),..}) => {
+                self.generate_expr(inner, symbol_table)
+            },
+            ast::DefaultExpr::Unary(ast::UnOp::AddressOf, box inner) => {
+                let v = self.generate_expr(inner, symbol_table);
+
+                let v = if let mir_def::Val::Var(v) = v { v } else { unreachable!() };
+
+                let res = self.gen_tmp_var(ty, symbol_table);
+
+                self.current_block.instructions.push(mir_def::Instruction::GetAddress {
+                    src: v,
+                    dst: res.clone()
+                });
+
+                mir_def::Val::Var(res)
+            },
             ast::DefaultExpr::Unary(unop, box inner) => {
                 let op = match unop {
                     ast::UnOp::Complement => mir_def::Unop::Complement,
                     ast::UnOp::Negate => mir_def::Unop::Negate,
 
+                    ast::UnOp::AddressOf |
+                    ast::UnOp::Dereference |
                     ast::UnOp::Not => unreachable!(),
                 };
 

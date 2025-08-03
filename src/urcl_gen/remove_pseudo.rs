@@ -103,20 +103,20 @@ impl<'a> RemovePseudo<'a> {
             asm::Instr::LLod { src, dst, offset } => {
                 let offset = self.convert_pval_src(offset, PVAL_SRC1, instructions);
                 let src = self.convert_pval_src(src, PVAL_SRC2, instructions);
+                let (dst, idx) = self.convert_pval_dst(dst, PVAL_DST);
 
-                instructions.push(asm::Instr::LLod { src, dst, offset })
+                instructions.push(asm::Instr::LLod { src, dst, offset });
+
+                if let Some(idx) = idx { self.pval_dst_write(PVAL_DST, idx, instructions); }
             },
             asm::Instr::LStr { src, dst, offset } => {
                 let offset = self.convert_pval_src(offset, PVAL_SRC2, instructions);
                 let src = self.convert_pval_src(src, PVAL_SRC1, instructions);
+                let (dst, idx) = self.convert_pval_dst(dst, PVAL_DST);
 
-                let dst = match dst {
-                    asm::PVal::Reg(r) => asm::Val::Reg(r),
-                    asm::PVal::Label(l) => asm::Val::Label(l),
-                    _ => unreachable!()
-                };
+                instructions.push(asm::Instr::LStr { src, dst, offset });
 
-                instructions.push(asm::Instr::LStr { src, dst, offset })
+                if let Some(idx) = idx { self.pval_dst_write(PVAL_DST, idx, instructions); }
             },
             asm::Instr::Push(src) => {
                 let src = self.convert_pval_src(src, PVAL_SRC1, instructions);
@@ -136,6 +136,38 @@ impl<'a> RemovePseudo<'a> {
 
                 if let Some(idx) = idx { self.pval_dst_write(PVAL_DST, idx, instructions); }
             },
+            asm::Instr::Lea { src, dst } => {
+                let (dst, idx) = self.convert_pval_dst(dst, PVAL_DST);
+
+                match src {
+                    asm::PVal::Imm(_) |
+                    asm::PVal::Reg(_) => unreachable!(),
+
+                    asm::PVal::Label(l) => {
+                        let src = asm::Val::Label(l);
+                        instructions.push(asm::Instr::Mov { src, dst });
+                    },
+                    asm::PVal::Var(v) => {
+                        let entry = self.symbol_table.get(&v).unwrap();
+
+                        match entry.attrs {
+                            IdentifierAttrs::Fn { .. } => unreachable!(),
+
+                            IdentifierAttrs::Local => {
+                                let v = if let VarPosition::Stack(s) = self.vars.get(&v).unwrap() { *s } else { unreachable!() };
+
+                                instructions.push(asm::Instr::Binary { binop: asm::Binop::Add, src1: asm::Reg::val(2), src2: asm::Val::Imm(v as i32), dst });
+                            },
+                            IdentifierAttrs::Static { .. } => {
+                                let src = asm::Val::Label(v);
+                                instructions.push(asm::Instr::Mov { src, dst });
+                            }
+                        }
+                    }
+                }
+
+                if let Some(idx) = idx { self.pval_dst_write(PVAL_DST, idx, instructions); }
+            }
 
             asm::Instr::Call(n) => instructions.push(asm::Instr::Call(n)),
             asm::Instr::Ret => {
@@ -168,10 +200,10 @@ impl<'a> RemovePseudo<'a> {
 
                 match v {
                     VarPosition::Stack(n) => {
-                        instructions.push(asm::Instr::LLod { src: asm::Reg::val(2), dst: asm::Reg::new(load_to), offset: asm::Val::Imm(*n as i32) });
+                        instructions.push(asm::Instr::LLod { src: asm::Reg::val(2), dst: asm::Reg::val(load_to), offset: asm::Val::Imm(*n as i32) });
                     },
                     VarPosition::Label(l) => {
-                        instructions.push(asm::Instr::LLod { src: asm::Val::Label(l.clone()), dst: asm::Reg::new(load_to), offset: asm::Val::Imm(0) });
+                        instructions.push(asm::Instr::LLod { src: asm::Val::Label(l.clone()), dst: asm::Reg::val(load_to), offset: asm::Val::Imm(0) });
                     }
                 }
 

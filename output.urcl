@@ -1,8 +1,8 @@
 BITS == 16
 MINREG 8
-MINHEAP 16
+MINHEAP 256
 RUN ROM
-MINSTACK 8
+MINSTACK 16
 
 IMM $2 0
 IMM $3 0
@@ -13,31 +13,43 @@ OUT %TEXT 45
 ABS $2 $1
 OUT %NUMB $2
 HLT
+.b
+	PSH $2
+	MOV $2 $3
+	ADD $3 $3 1
+	POP $1
+	POP $2
+	POP $7
+	LSTR $2 1 $7
+	PSH $2
+	PSH $1
+	.lbl.gen.1.
+	LSTR $7 0 3
+	LSTR $2 1 $7
+	MOV $1 0
+	MOV $3 $2
+	POP $2
+	RET
 .main
 	PSH $2
 	MOV $2 $3
-	ADD $3 $3 5
+	ADD $3 $3 2
 	POP $1
 	POP $2
 	PSH $2
 	PSH $1
-	.lbl.gen.1.
-	NEG, $7 50
+	.lbl.gen.3.
+	MOV $7 .x
 	LSTR $2 1 $7
 	LLOD $7 $2 1
-	MOV $7 $7
+	PSH $7
+	CAL .b
+	MOV $7 $1
 	LSTR $2 2 $7
-	MOV $7 5
-	LSTR $2 3 $7
-	LLOD $7 $2 2
-	LLOD $8 $2 3
-	DIV $7 $7 $8
-	LSTR $2 4 $7
-	LLOD $7 $2 4
-	MOV $7 $7
-	LSTR $2 5 $7
-	LLOD $7 $2 5
+	LLOD $7 .x 0
 	MOV $1 $7
 	MOV $3 $2
 	POP $2
 	RET
+.x
+	DW 20
