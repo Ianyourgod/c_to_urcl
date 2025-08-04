@@ -319,17 +319,25 @@ impl Display for Val {
 }
 
 #[derive(Debug, Clone, Copy)]
-pub struct Reg(u8);
+pub enum Reg {
+    Normal(u8),
+    SP,
+}
 
 impl Display for Reg {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.write_str(&format!("${}", self.0))
+        let s = match self {
+            Reg::Normal(n) => &format!("${n}"),
+            Reg::SP => "SP"
+        };
+
+        f.write_str(s)
     }
 }
 
 impl Reg {
     pub fn new(n: u8) -> Self {
-        Self(n)
+        Self::Normal(n)
     }
 
     pub fn val(n: u8) -> Val {
@@ -339,6 +347,16 @@ impl Reg {
     pub fn pval(n: u8) -> PVal {
         PVal::Reg(Self::new(n))
     }
+
+    pub fn sp() -> Self { Self::SP }
+
+    pub fn sp_val() -> Val { Val::Reg(Self::sp()) }
+    pub fn sp_pval() -> PVal { PVal::Reg(Self::sp()) }
+
+    pub fn bp() -> Self { Self::Normal(2) }
+
+    pub fn bp_val() -> Val { Val::Reg(Self::bp()) }
+    pub fn bp_pval() -> PVal { PVal::Reg(Self::bp()) }
 }
 
 #[derive(Debug, Clone)]

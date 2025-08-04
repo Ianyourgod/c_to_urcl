@@ -49,18 +49,20 @@ impl<'a> RemovePseudo<'a> {
         
         let mut instructions = Vec::with_capacity(function.instructions.len() + 5);
 
-        instructions.push(asm::Instr::Push(asm::Reg::val(2)));
-        instructions.push(asm::Instr::Mov { src: asm::Reg::val(3), dst: asm::Reg::val(2) });
-        instructions.push(asm::Instr::Binary { binop: asm::Binop::Add, src1: asm::Reg::val(3), src2: asm::Val::Imm(0), dst: asm::Reg::val(3) });
+        instructions.push(asm::Instr::Push(asm::Reg::bp_val()));
+        instructions.push(asm::Instr::Mov { src: asm::Reg::sp_val(), dst: asm::Reg::bp_val() });
+        // placeholder
+        instructions.push(asm::Instr::Binary { binop: asm::Binop::Sub, src1: asm::Reg::sp_val(), src2: asm::Val::Imm(0), dst: asm::Reg::sp_val() });
 
         function.instructions.into_iter().for_each(|i|self.generate_instruction(i, &mut instructions));
 
+        // fill in placeholder
         *instructions.get_mut(2).unwrap() =
             asm::Instr::Binary {
-                binop: asm::Binop::Add,
-                src1: asm::Reg::val(3),
+                binop: asm::Binop::Sub,
+                src1: asm::Reg::sp_val(),
                 src2: asm::Val::Imm(self.stack_offset as i32),
-                dst: asm::Reg::val(3)
+                dst: asm::Reg::sp_val()
             };
 
         asm::Function {
@@ -156,7 +158,7 @@ impl<'a> RemovePseudo<'a> {
                             IdentifierAttrs::Local => {
                                 let v = if let VarPosition::Stack(s) = self.vars.get(&v).unwrap() { *s } else { unreachable!() };
 
-                                instructions.push(asm::Instr::Binary { binop: asm::Binop::Add, src1: asm::Reg::val(2), src2: asm::Val::Imm(v as i32), dst });
+                                instructions.push(asm::Instr::Binary { binop: asm::Binop::Sub, src1: asm::Reg::bp_val(), src2: asm::Val::Imm(v as i32), dst });
                             },
                             IdentifierAttrs::Static { .. } => {
                                 let src = asm::Val::Label(v);
@@ -171,8 +173,8 @@ impl<'a> RemovePseudo<'a> {
 
             asm::Instr::Call(n) => instructions.push(asm::Instr::Call(n)),
             asm::Instr::Ret => {
-                instructions.push(asm::Instr::Mov { src: asm::Reg::val(2), dst: asm::Reg::val(3) });
-                instructions.push(asm::Instr::Pop(asm::Reg::val(2)));
+                instructions.push(asm::Instr::Mov { src: asm::Reg::bp_val(), dst: asm::Reg::sp_val() });
+                instructions.push(asm::Instr::Pop(asm::Reg::bp_val()));
                 instructions.push(asm::Instr::Ret)
             },
             asm::Instr::Jmp { label } => instructions.push(asm::Instr::Jmp { label }),
@@ -200,9 +202,10 @@ impl<'a> RemovePseudo<'a> {
 
                 match v {
                     VarPosition::Stack(n) => {
-                        instructions.push(asm::Instr::LLod { src: asm::Reg::val(2), dst: asm::Reg::val(load_to), offset: asm::Val::Imm(*n as i32) });
+                        instructions.push(asm::Instr::LLod { src: asm::Reg::bp_val(), dst: asm::Reg::val(load_to), offset: asm::Val::Imm(-(*n as i32)) });
                     },
                     VarPosition::Label(l) => {
+                        // TODO! use normal lod instr
                         instructions.push(asm::Instr::LLod { src: asm::Val::Label(l.clone()), dst: asm::Reg::val(load_to), offset: asm::Val::Imm(0) });
                     }
                 }
@@ -250,8 +253,8 @@ impl<'a> RemovePseudo<'a> {
             VarPosition::Stack(n) => {
                 instructions.push(asm::Instr::LStr {
                     src: asm::Reg::val(written_to),
-                    dst: asm::Reg::val(2),
-                    offset: asm::Val::Imm(n as i32)
+                    dst: asm::Reg::bp_val(),
+                    offset: asm::Val::Imm(-(n as i32))
                 });
             }
         }

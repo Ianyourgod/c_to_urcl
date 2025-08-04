@@ -23,14 +23,14 @@ impl<'a> ASMGenerator<'a> {
                     mir_def::TopLevel::Fn(func) => {
                         let mut instructions = Vec::new();
 
-                        // TODO! fix this instead of using this workaround (basically, since we pop arguments, we cant push the bp PLUS THE RETURN ADDR IS THERE (!!!!), so to workaround we just pop it then push it after)
-                        instructions.push(asm::Instr::Pop(asm::Reg::pval(1)));
-                        instructions.push(asm::Instr::Pop(asm::Reg::pval(2)));
-                        for param in func.params {
-                            instructions.push(asm::Instr::Pop(asm::PVal::Var(param)))
+                        let params_len = func.params.len();
+                        for (param, offset) in func.params.into_iter().zip(0..params_len) {
+                            instructions.push(asm::Instr::LLod {
+                                src: asm::Reg::bp_pval(),
+                                offset: asm::PVal::Imm((offset * 2 + 2) as i32),
+                                dst: asm::PVal::Var(param),
+                            });
                         }
-                        instructions.push(asm::Instr::Push(asm::Reg::pval(2)));
-                        instructions.push(asm::Instr::Push(asm::Reg::pval(1)));
 
                         self.cfg_to_asm(func.basic_blocks, &mut instructions);
                         
