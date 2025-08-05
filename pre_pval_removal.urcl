@@ -14,25 +14,12 @@ ABS $2 $1
 OUT %NUMB $2
 HLT
 .main
-	PSH $2
-	MOV $2 SP
-	SUB SP SP 3
 	.lbl.gen.1.
-	MOV $7 .b
-	LSTR $2 0 $7
-	MLT $7 1 1
-	LSTR $2 -1 $7
-	LLOD $7 $2 0
-	LLOD $8 $2 -1
-	ADD $7 $7 $8
-	LSTR $2 -1 $7
-	LLOD $8 $2 -1
-	LLOD $7 $8 0
-	LSTR $2 -2 $7
-	LLOD $7 $2 -2
-	MOV $1 $7
-	MOV SP $2
-	POP $2
+	MOV tmp.2. .b
+	MLT tmp.3. 1 1
+	ADD tmp.3. tmp.2. tmp.3.
+	LLOD tmp.4. tmp.3. 0
+	MOV $1 tmp.4.
 	RET
 .b
 	DW [1, 2, ]

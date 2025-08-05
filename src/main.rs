@@ -31,7 +31,7 @@ fn main() {
 
     let mir = mir::generate_mir(ast, &mut symbol_table);
 
-    //println!("{:#?}", mir);
+    println!("{:#?}", mir);
 
     let asm = urcl_gen::mir_to_asm(mir, &symbol_table);
 

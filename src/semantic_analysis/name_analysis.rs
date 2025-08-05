@@ -73,9 +73,16 @@ impl Analyzer {
     fn analyze_file_scope_var_decl(&mut self, mut decl: ast::VarDeclaration<ast::Expr>, context: &mut Context) -> ast::VarDeclaration<ast::Expr> {
         self.add_new_name(decl.name.clone(), context, true);
 
-        decl.expr = decl.expr.map(|e|self.analyze_expr(e, context));
+        decl.expr = decl.expr.map(|i|self.analyze_init(i, context));
 
         decl
+    }
+
+    fn analyze_init(&mut self, init: ast::Initializer<ast::Expr>, context: &mut Context) -> ast::Initializer<ast::Expr> {
+        match init {
+            ast::Initializer::Single(e) => ast::Initializer::Single(self.analyze_expr(e, context)),
+            ast::Initializer::Compound(c) => ast::Initializer::Compound(c.into_iter().map(|i|self.analyze_init(i, context)).collect())
+        }
     }
 
     fn analyze_function(&mut self, function: ast::FunctionDecl<ast::Expr>, context: &mut Context) -> ast::FunctionDecl<ast::Expr> {
@@ -158,7 +165,7 @@ impl Analyzer {
 
         let name = self.add_new_name(var_decl.name, context, false);
 
-        ast::VarDeclaration::new(name, var_decl.ty, var_decl.expr.map(|expr|self.analyze_expr(expr, context)), var_decl.storage_class)
+        ast::VarDeclaration::new(name, var_decl.ty, var_decl.expr.map(|i|self.analyze_init(i, context)), var_decl.storage_class)
     }
 
     fn analyze_statement(&mut self, statement: ast::Statement<ast::Expr>, context: &mut Context) -> ast::Statement<ast::Expr> {
@@ -227,6 +234,12 @@ impl Analyzer {
 
     fn analyze_expr(&mut self, expr: ast::Expr, context: &Context) -> ast::Expr {
         ast::Expr::new(match expr.0 {
+            ast::DefaultExpr::Subscript(box (obj, idx)) => {
+                let obj = self.analyze_expr(obj, context);
+                let idx = self.analyze_expr(idx, context);
+
+                ast::DefaultExpr::Subscript(Box::new((obj, idx)))
+            },
             ast::DefaultExpr::Binary(ast::BinOp::Assign(assign_type), box (var, val)) => {
                 let var = self.analyze_expr(var, context);
                 let val = self.analyze_expr(val, context);
@@ -269,7 +282,7 @@ impl Analyzer {
                 ast::DefaultExpr::Cast(ty, Box::new(inner))
             }
 
-            ast::DefaultExpr::Number(_) => expr.0,
+            ast::DefaultExpr::Constant(_) => expr.0,
         })
     }
 }

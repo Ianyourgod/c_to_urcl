@@ -1,5 +1,5 @@
 pub mod mir_def;
-mod mir_gen;
+pub mod mir_gen;
 
 use crate::{ast, semantic_analysis::type_check::SymbolTable};
 

@@ -50,7 +50,7 @@ pub struct StaticVariable {
     pub global: bool,
     #[allow(unused)]
     pub ty: Type,
-    pub init: StaticInit
+    pub init: Vec<StaticInit>
 }
 
 #[derive(Debug, Clone)]
@@ -124,6 +124,17 @@ pub enum Instruction {
     Store {
         src: Val,
         dst_ptr: Val,
+    },
+    AddPtr {
+        ptr: Val,
+        idx: Val,
+        scale: i16,
+        dst: Ident,
+    },
+    CopyToOffset {
+        src: Val,
+        offset: i16,
+        dst: Ident,
     },
 }
 

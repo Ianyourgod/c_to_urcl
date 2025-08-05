@@ -1,11 +1,5 @@
-int x = 20;
-
-int b(int *a) {
-    *a = 3;
-}
+int b[3] = { 1, 2 };
 
 int main(void) {
-    b(&x);
-
-    return x;
+    return b[1];
 }

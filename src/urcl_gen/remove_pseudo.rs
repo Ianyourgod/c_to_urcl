@@ -2,7 +2,7 @@ use std::collections::HashMap;
 
 use crate::semantic_analysis::type_check::{IdentifierAttrs, SymbolTable};
 use crate::urcl_gen::asm;
-use crate::mir::mir_def::Ident;
+use crate::mir::{mir_def::Ident, mir_gen::get_size_of_type};
 
 pub fn fix_pvals(program: asm::Program<asm::PVal>, symbol_table: &SymbolTable) -> asm::Program<asm::Val> {
     let mut r = RemovePseudo::new(symbol_table);
@@ -116,6 +116,7 @@ impl<'a> RemovePseudo<'a> {
                 let src = self.convert_pval_src(src, PVAL_SRC1, instructions);
                 let (dst, idx) = self.convert_pval_dst(dst, PVAL_DST);
 
+                //println!("STR {:?} -> {:?} {:?}", src, dst, offset);
                 instructions.push(asm::Instr::LStr { src, dst, offset });
 
                 if let Some(idx) = idx { self.pval_dst_write(PVAL_DST, idx, instructions); }
@@ -156,7 +157,7 @@ impl<'a> RemovePseudo<'a> {
                             IdentifierAttrs::Fn { .. } => unreachable!(),
 
                             IdentifierAttrs::Local => {
-                                let v = if let VarPosition::Stack(s) = self.vars.get(&v).unwrap() { *s } else { unreachable!() };
+                                let v = if let VarPosition::Stack(s) = self.get_var_pos(v) { s } else { unreachable!() };
 
                                 instructions.push(asm::Instr::Binary { binop: asm::Binop::Sub, src1: asm::Reg::bp_val(), src2: asm::Val::Imm(v as i32), dst });
                             },
@@ -221,24 +222,28 @@ impl<'a> RemovePseudo<'a> {
             asm::PVal::Reg(r) => asm::Val::Reg(r),
             asm::PVal::Label(l) => asm::Val::Label(l),
             asm::PVal::Var(v) => {
-                let v = self.vars.entry(v.clone()).or_insert_with(|| {
-                    let entry = self.symbol_table.get(&v).unwrap();
+                let v = self.get_var_pos(v);
 
-                    match entry.attrs {
-                        IdentifierAttrs::Local => {
-                            self.stack_offset += 1;
-                            VarPosition::Stack(self.stack_offset)
-                        },
-                        IdentifierAttrs::Static { .. } => {
-                            VarPosition::Label(v)
-                        }
-                        IdentifierAttrs::Fn { .. } => unreachable!()
-                    }
-                });
-
-                return (asm::Reg::val(write_to), Some(v.clone()));
+                return (asm::Reg::val(write_to), Some(v));
             },
         }, None)
+    }
+
+    fn get_var_pos(&mut self, var: Ident) -> VarPosition {
+        self.vars.entry(var.clone()).or_insert_with(|| {
+            let entry = self.symbol_table.get(&var).unwrap();
+
+            match entry.attrs {
+                IdentifierAttrs::Local => {
+                    self.stack_offset += get_size_of_type(&entry.ty) as u32;
+                    VarPosition::Stack(self.stack_offset-1)
+                },
+                IdentifierAttrs::Static { .. } => {
+                    VarPosition::Label(var)
+                }
+                IdentifierAttrs::Fn { .. } => unreachable!()
+            }
+        }).clone()
     }
 
     fn pval_dst_write(&mut self, written_to: u8, idx: VarPosition, instructions: &mut Vec<asm::Instr<asm::Val>>) {

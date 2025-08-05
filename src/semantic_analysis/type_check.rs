@@ -24,7 +24,7 @@ impl SymbolTableEntry {
     }
 }
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone)]
 pub enum IdentifierAttrs {
     Fn {
         defined: bool,
@@ -37,10 +37,10 @@ pub enum IdentifierAttrs {
     Local
 }
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone)]
 pub enum InitialValue {
     Tentative,
-    Initial(StaticInit),
+    Initial(Vec<StaticInit>),
     NoInit,
 }
 
@@ -48,9 +48,11 @@ pub enum InitialValue {
 pub enum StaticInit {
     IntInit(i16),
     UIntInit(u16),
+    ZeroInit,
 }
 
 impl StaticInit {
+    #[allow(dead_code)]
     pub fn from_const(c: ast::Const) -> Self {
         match c {
             ast::Const::Int(n) => Self::IntInit(n),
@@ -63,7 +65,8 @@ impl Display for StaticInit {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         let s = match self {
             StaticInit::IntInit(n) => &n.to_string(),
-            StaticInit::UIntInit(n) => &n.to_string()
+            StaticInit::UIntInit(n) => &n.to_string(),
+            StaticInit::ZeroInit => "0"
         };
 
         f.write_str(s)
@@ -102,14 +105,16 @@ impl TypeChecker {
     pub fn typecheck(mut self, program: ast::Program<Expr>) -> (ast::Program<TypedExpr>, SymbolTable) {
         let program = ast::Program {
             top_level_items:
-                program.top_level_items.into_iter().map(|f|{
+                program.top_level_items.into_iter().filter_map(|f|{
                     match f {
                         ast::Declaration::Fn(f) => {
                             self.current_ret_ty = f.ret_ty.clone();
-                            ast::Declaration::Fn(self.typecheck_function(f))
+                            Some(ast::Declaration::Fn(self.typecheck_function(f)))
                         },
                         ast::Declaration::Var(v) => {
-                            ast::Declaration::Var(self.typecheck_file_scope_var_decl(v))
+                            self.typecheck_file_scope_var_decl(v);
+
+                            None
                         }
                     }
                 }).collect()
@@ -120,11 +125,21 @@ impl TypeChecker {
 
     fn typecheck_function(&mut self, function: ast::FunctionDecl<Expr>) -> ast::FunctionDecl<TypedExpr> {
         let fn_type = Type::Fn {
-            params: function.params.iter().map(|(t, _)|t.clone()).collect(),
+            params: function.params.iter().map(|(t, _)|{
+                if let Type::Array(t, _) = t {
+                    t.as_ref()
+                } else {
+                    t
+                }.clone()
+            }).collect(),
             ret_ty: Box::new(function.ret_ty.clone())
         };
         let has_body = function.block.is_some();
         let mut global = function.storage_class != Some(ast::StorageClass::Static);
+
+        if matches!(function.ret_ty, Type::Array(_, _)) {
+            panic!("A function cannot return an array");
+        }
 
         let already_defined = if let Some(old_entry) = self.symbol_table.get(&function.name) {
             if old_entry.ty != fn_type {
@@ -150,8 +165,8 @@ impl TypeChecker {
         self.symbol_table.insert(function.name.clone(), SymbolTableEntry::new(fn_type, attrs));
 
         let block = function.block.map(|block| {
-            let attrs = IdentifierAttrs::Local;
             for (ty, param) in &function.params {
+                let attrs = IdentifierAttrs::Local;
                 self.symbol_table.insert(param.clone(), SymbolTableEntry::new(ty.clone(), attrs));
             }
 
@@ -167,107 +182,191 @@ impl TypeChecker {
         }
     }
 
-    fn typecheck_file_scope_var_decl(&mut self, var_decl: ast::VarDeclaration<ast::Expr>) -> ast::VarDeclaration<TypedExpr> {
-        let (mut initial_value, init_is_const, expr) = if let Some(ast::Expr(DefaultExpr::Number(n))) = &var_decl.expr {
-            if var_decl.ty.is_pointer_type() {
-                if match n {
-                    ast::Const::Int(n) => *n != 0,
-                    ast::Const::UInt(n) => *n != 0,
-                } {
-                    panic!("Cannot initialize a pointer to a non-null value");
-                }
-            }
-
-            (InitialValue::Initial(StaticInit::from_const(*n)), true, Some(TypedExpr::new(DefaultExpr::Number(*n), n.to_type())))
-        } else if var_decl.expr.is_none() {
-            (if var_decl.storage_class == Some(ast::StorageClass::Extern) {
-                InitialValue::NoInit
-            } else {
-                InitialValue::Tentative
-            }, false, None)
+    // we can return nothing as tacky uses the symbol table to generate static vars
+    fn typecheck_file_scope_var_decl(&mut self, var_decl: ast::VarDeclaration<Expr>) {
+        let default_init = if var_decl.storage_class == Some(ast::StorageClass::Extern) {
+            InitialValue::NoInit
         } else {
-            panic!("Non-constant static init");
+            InitialValue::Tentative
         };
+        
+        let initial_value = if let Some(init) = var_decl.expr {
+            InitialValue::Initial(self.init_to_static(init, &var_decl.ty))
+        } else { default_init };
 
-        let mut global = var_decl.storage_class != Some(ast::StorageClass::Static);
+        let current_global = var_decl.storage_class != Some(ast::StorageClass::Static);
 
-        if let Some(old_entry) = self.symbol_table.get(&var_decl.name) {
-            if let Type::Fn { .. } = old_entry.ty {
+        let (global, init) = if let Some(old_entry) = self.symbol_table.get(&var_decl.name) {
+            if matches!(old_entry.ty, Type::Fn { .. }) {
                 panic!("Function redeclared as a variable!");
             }
 
-            let (old_init, old_global) = if let IdentifierAttrs::Static { init, global } = old_entry.attrs { (init, global) } else { unreachable!() };
+            let (old_init, old_global) = if let IdentifierAttrs::Static { init, global } = &old_entry.attrs { (init, *global) } else { unreachable!() };
 
-            if var_decl.storage_class == Some(ast::StorageClass::Extern) {
-                global = old_global;
-            } else if old_global != global {
-                panic!("Conflicting variable linkage with variable {}", var_decl.name);
+            if old_entry.ty != var_decl.ty {
+                panic!("Conflicting file scope variable definitions (types)");
             }
 
-            if let InitialValue::Initial(_) = old_init {
-                if init_is_const {
-                    panic!("Conflicting file scope variable definitions with variable {}", var_decl.name);
-                } else {
-                    initial_value = old_init;
-                }
-            } else if !init_is_const && let InitialValue::Tentative = old_init {
-                initial_value = old_init;
-            }
-        }
+            let global =
+                if var_decl.storage_class == Some(ast::StorageClass::Extern) { old_global }
+                else if current_global == old_global { current_global }
+                else { panic!("Conflicting file scope variable linkage"); };
 
-        let attrs = IdentifierAttrs::Static { init: initial_value, global };
-        self.symbol_table.insert(var_decl.name.clone(), SymbolTableEntry::new(Type::Int, attrs));
+            let init = match (&old_init, &initial_value) {
+                (InitialValue::Initial(_), InitialValue::Initial(_)) => panic!("Conflicting global variable definitions"),
+                (InitialValue::Initial(_), _) => old_init.clone(),
+                (InitialValue::Tentative, InitialValue::Tentative|InitialValue::NoInit) => InitialValue::Tentative,
+                (_, InitialValue::Initial(_)|InitialValue::NoInit) => initial_value,
+                _ => panic!("You did something wrong with global vars man")
+            };
 
-        ast::VarDeclaration {
-            name: var_decl.name,
-            ty: var_decl.ty,
-            expr,
-            storage_class: var_decl.storage_class,
+            (global, init)
+        } else {
+            (current_global, initial_value)
+        };
+
+        let attrs = IdentifierAttrs::Static { init, global };
+        self.symbol_table.insert(var_decl.name.clone(), SymbolTableEntry::new(var_decl.ty, attrs));
+    }
+
+    fn init_to_static(&mut self, init: ast::Initializer<Expr>, ty: &Type) -> Vec<StaticInit> {
+        match (init, ty) {
+            (ast::Initializer::Compound(inits), ast::Type::Array(_, _)) => {
+                self.compound_init_to_static_inits_rec(inits, ty)
+            },
+            (_, ast::Type::Array(_, _)) => panic!("Cannot initialize array to non-compound"),
+            (ast::Initializer::Single(expr), _) => vec![self.handle_single_init(expr)],
+            (_, _) => panic!("Invalid static init"),
         }
     }
 
-    fn typecheck_var_decl(&mut self, var_decl: ast::VarDeclaration<ast::Expr>) -> ast::VarDeclaration<TypedExpr> {
+    fn handle_single_init(&self, expr: Expr) -> StaticInit {
+        // TODO! we don't check that pointers are 0
+        if let DefaultExpr::Constant(c) = expr.0 {
+            match c {
+                ast::Const::Int(n) => StaticInit::IntInit(n),
+                ast::Const::UInt(n) => StaticInit::UIntInit(n)
+            }
+        } else {
+            panic!("Cannot initialize static var to non-const or non compound");
+        }
+    }
+
+    fn compound_init_to_static_inits_rec(&self, inits: Vec<ast::Initializer<Expr>>, ty: &Type) -> Vec<StaticInit> {
+        inits.into_iter().flat_map(|i| {
+            match (i, ty) {
+                (ast::Initializer::Compound(c), Type::Array(inner_ty, len)) => {
+                    let len = *len as usize;
+                    
+                    if c.len() > len {
+                        panic!("Too many inits");
+                    }
+
+                    let needed_zeros = len - c.len();
+
+                    let inits = self.compound_init_to_static_inits_rec(c, inner_ty.as_ref());
+                    inits.into_iter().chain(std::iter::repeat(StaticInit::ZeroInit).take(needed_zeros)).collect()
+                },
+                (ast::Initializer::Compound(_), _) => panic!("Cannot use compound on non-compound type"),
+                (ast::Initializer::Single(s), _) => vec![self.handle_single_init(s)]
+            }
+        }).collect()
+    }
+
+    fn static_zero_init(&self, ty: &Type) -> Vec<StaticInit> {
+        match ty {
+            ast::Type::Array(inner_ty, len) => {
+                std::iter::repeat(self.static_zero_init(inner_ty.as_ref()))
+                    .flat_map(|i|i)
+                    .take(*len as usize)
+                    .collect()
+            },
+            ast::Type::Int => vec![StaticInit::IntInit(0)],
+            ast::Type::UInt => vec![StaticInit::UIntInit(0)],
+            ast::Type::Pointer(_) => vec![StaticInit::IntInit(0)],
+
+            ast::Type::Fn { .. } => unreachable!()
+        }
+    }
+
+    fn typecheck_var_decl(&mut self, var_decl: ast::VarDeclaration<Expr>) -> ast::VarDeclaration<TypedExpr> {
         if var_decl.storage_class == Some(ast::StorageClass::Extern) {
             if var_decl.expr.is_some() {
                 panic!("Cannot have init on local extern variable declaration");
             }
             if let Some(old_entry) = self.symbol_table.get(&var_decl.name) {
-                if let Type::Fn { .. } = old_entry.ty {
+                if matches!(old_entry.ty, Type::Fn { .. }) {
                     panic!("Function redeclared as a variable");
                 }
             } else {
                 let attrs = IdentifierAttrs::Static { init: InitialValue::NoInit, global: true };
-                self.symbol_table.insert(var_decl.name.clone(), SymbolTableEntry::new(Type::Int, attrs));
+                self.symbol_table.insert(var_decl.name.clone(), SymbolTableEntry::new(var_decl.ty.clone(), attrs));
             }
 
             return ast::VarDeclaration::new(var_decl.name, var_decl.ty, None, var_decl.storage_class);
         }
 
         if var_decl.storage_class == Some(ast::StorageClass::Static) {
-            let (init, expr) = if let Some(ast::Expr(DefaultExpr::Number(n))) = var_decl.expr {
-                (InitialValue::Initial(StaticInit::from_const(n)), Some(TypedExpr::new(DefaultExpr::Number(n), n.to_type())))
-            } else if var_decl.expr.is_none() {
-                (InitialValue::Initial(StaticInit::IntInit(0)), None)
+            let init = if let Some(init) = var_decl.expr {
+                InitialValue::Initial(self.init_to_static(init, &var_decl.ty))
             } else {
-                panic!("Non-constant init on static variable {}", var_decl.name);
+                InitialValue::Initial(self.static_zero_init(&var_decl.ty))
             };
 
             let attrs = IdentifierAttrs::Static { init: init, global: false };
-            self.symbol_table.insert(var_decl.name.clone(), SymbolTableEntry::new(Type::Int, attrs));
+            self.symbol_table.insert(var_decl.name.clone(), SymbolTableEntry::new(var_decl.ty.clone(), attrs));
 
-            return ast::VarDeclaration::new(var_decl.name, var_decl.ty, expr, var_decl.storage_class);
+            return ast::VarDeclaration::new(var_decl.name, var_decl.ty, None, var_decl.storage_class);
         }
         
         let attrs = IdentifierAttrs::Local;
-        self.symbol_table.insert(var_decl.name.clone(), SymbolTableEntry::new(Type::Int, attrs));
-        let expr = var_decl.expr.map(|e|self.typecheck_expr(e));
+        self.symbol_table.insert(var_decl.name.clone(), SymbolTableEntry::new(var_decl.ty.clone(), attrs));
 
-        let expr = expr.map(|e|self.convert_by_assignment(e, &var_decl.ty));
+        let expr = var_decl.expr.map(|e|self.typecheck_init(e, var_decl.ty.clone()));
 
         return ast::VarDeclaration::new(var_decl.name, var_decl.ty, expr, var_decl.storage_class);
     }
 
-    fn typecheck_block(&mut self, block: ast::Block<ast::Expr>) -> ast::Block<TypedExpr> {
+    fn typecheck_init(&mut self, init: ast::Initializer<Expr>, target_type: Type) -> ast::Initializer<TypedExpr> {
+        match (&target_type, init) {
+            (_, ast::Initializer::Single(expr)) => {
+                let expr = self.typecheck_and_convert(expr);
+                let expr = self.convert_by_assignment(expr, &target_type);
+                ast::Initializer::Single(expr)
+            },
+            (Type::Array(inner_ty, len), ast::Initializer::Compound(inits)) => {
+                let len = *len as usize;
+                
+                if inits.len() > len {
+                    panic!("Too many values in compound initializer");
+                }
+
+                let extra_needed = len - inits.len();
+
+                let inits = inits.into_iter().map(|init| {
+                    self.typecheck_init(init, (**inner_ty).clone())
+                }).collect::<Vec<_>>().into_iter().chain(std::iter::repeat(self.zero_init(inner_ty.as_ref())).take(extra_needed)).collect::<Vec<_>>();
+
+                ast::Initializer::Compound(inits)
+            },
+            _ => panic!("Cannot initialize a scalar object with a compound initializer")
+        }
+    }
+
+    fn zero_init(&self, ty: &Type) -> ast::Initializer<TypedExpr> {
+        match ty {
+            Type::Int => ast::Initializer::Single(TypedExpr::new(DefaultExpr::Constant(ast::Const::Int(0)), ast::Type::Int)),
+            Type::UInt => ast::Initializer::Single(TypedExpr::new(DefaultExpr::Constant(ast::Const::UInt(0)), ast::Type::Int)),
+            Type::Pointer(_) => ast::Initializer::Single(TypedExpr::new(DefaultExpr::Constant(ast::Const::Int(0)), ty.clone())),
+            Type::Array(ty, len) => {
+                ast::Initializer::Compound(std::iter::repeat(self.zero_init(ty.as_ref())).take(*len as usize).collect())
+            }
+
+            Type::Fn { .. } => panic!("Cannot zero init a function"),
+        }
+    }
+
+    fn typecheck_block(&mut self, block: ast::Block<Expr>) -> ast::Block<TypedExpr> {
         ast::Block {
             statements: block.statements.into_iter().map(|block_item| {
                 match block_item {
@@ -282,7 +381,7 @@ impl TypeChecker {
         }
     }
 
-    fn typecheck_declaration(&mut self, decl: ast::Declaration<ast::Expr>) -> ast::Declaration<TypedExpr> {
+    fn typecheck_declaration(&mut self, decl: ast::Declaration<Expr>) -> ast::Declaration<TypedExpr> {
         match decl {
             ast::Declaration::Fn(func_decl) => {
                 ast::Declaration::Fn(self.typecheck_function(func_decl))
@@ -293,19 +392,19 @@ impl TypeChecker {
         }
     }
 
-    fn typecheck_statement(&mut self, stmt: Statement<ast::Expr>) -> Statement<TypedExpr> {
+    fn typecheck_statement(&mut self, stmt: Statement<Expr>) -> Statement<TypedExpr> {
         match stmt {
             Statement::Return(expr) => {
-                let e = self.typecheck_expr(expr);
+                let e = self.typecheck_and_convert(expr);
 
                 let expr = self.convert_by_assignment(e, &self.current_ret_ty);
 
                 Statement::Return(expr)
             },
             Statement::Block(block) => Statement::Block(self.typecheck_block(block)),
-            Statement::Expr(expr) => Statement::Expr(self.typecheck_expr(expr)),
+            Statement::Expr(expr) => Statement::Expr(self.typecheck_and_convert(expr)),
             Statement::If(cond, box (then_stmt, else_stmt)) => {
-                let cond = self.typecheck_expr(cond);
+                let cond = self.typecheck_and_convert(cond);
 
                 let then_stmt = self.typecheck_statement(then_stmt);
                 let else_stmt = else_stmt.map(|s|self.typecheck_statement(s));
@@ -313,14 +412,14 @@ impl TypeChecker {
                 Statement::If(cond, Box::new((then_stmt, else_stmt)))
             },
             Statement::While(cond, box stmt, label) => {
-                let cond = self.typecheck_expr(cond);
+                let cond = self.typecheck_and_convert(cond);
 
                 let stmt = self.typecheck_statement(stmt);
 
                 Statement::While(cond, Box::new(stmt), label)
             },
             Statement::DoWhile(cond, box stmt, label) => {
-                let cond = self.typecheck_expr(cond);
+                let cond = self.typecheck_and_convert(cond);
 
                 let stmt = self.typecheck_statement(stmt);
 
@@ -329,12 +428,12 @@ impl TypeChecker {
             Statement::For { init, cond, post, box body, label } => {
                 let init = match init {
                     ast::ForInit::Decl(decl) => ast::ForInit::Decl(self.typecheck_var_decl(decl)),
-                    ast::ForInit::Expr(expr) => ast::ForInit::Expr(self.typecheck_expr(expr)),
+                    ast::ForInit::Expr(expr) => ast::ForInit::Expr(self.typecheck_and_convert(expr)),
                     ast::ForInit::None => ast::ForInit::None,
                 };
 
-                let cond = cond.map(|c|self.typecheck_expr(c));
-                let post = post.map(|p|self.typecheck_expr(p));
+                let cond = cond.map(|c|self.typecheck_and_convert(c));
+                let post = post.map(|p|self.typecheck_and_convert(p));
 
                 let body = Box::new(self.typecheck_statement(body));
 
@@ -347,10 +446,25 @@ impl TypeChecker {
         }
     }
 
-    fn typecheck_expr(&mut self, expr: ast::Expr) -> TypedExpr {
+    fn typecheck_and_convert(&mut self, expr: Expr) -> TypedExpr {
+        let expr = self.typecheck_expr(expr);
+
+        match &expr.ty {
+            Type::Array(el_ty, _) => {
+                let ty = el_ty.clone();
+                TypedExpr::new(
+                    DefaultExpr::Unary(ast::UnOp::AddressOf, Box::new(expr)),
+                    Type::Pointer(ty)
+                )
+            }
+            _ => expr
+        }
+    }
+
+    fn typecheck_expr(&mut self, expr: Expr) -> TypedExpr {
         match expr.0 {
-            DefaultExpr::Number(c) => {
-                TypedExpr::new(DefaultExpr::Number(c), c.to_type())
+            DefaultExpr::Constant(c) => {
+                TypedExpr::new(DefaultExpr::Constant(c), c.to_type())
             },
             DefaultExpr::FunctionCall(name, params) => {
                 let fn_ty = self.symbol_table.get(&name).unwrap();
@@ -366,20 +480,20 @@ impl TypeChecker {
                 let ret_ty = (**ret_ty).clone();
 
                 let params: Vec<TypedExpr> = params.into_iter().zip(params_ty.clone()).map(|(p, ty)|{
-                    let e = self.typecheck_expr(p);
+                    let e = self.typecheck_and_convert(p);
                     self.convert_by_assignment(e, &ty)
                 }).collect();
 
                 TypedExpr::new(DefaultExpr::FunctionCall(name, params), ret_ty)
             },
             DefaultExpr::Binary(ast::BinOp::Assign(assign_ty), box (left, right)) => {
-                let left = self.typecheck_expr(left);
+                let left = self.typecheck_and_convert(left);
 
                 if !self.is_lvalue(&left) {
                     panic!("Cannot assign to a non-lvalue")
                 }
 
-                let right = self.typecheck_expr(right);
+                let right = self.typecheck_and_convert(right);
 
                 let left_ty = left.ty.clone();
                 let right = self.convert_by_assignment(right, &left_ty);
@@ -388,8 +502,8 @@ impl TypeChecker {
                     DefaultExpr::Binary(ast::BinOp::Assign(assign_ty), Box::new((left, right))), left_ty)
             },
             DefaultExpr::Binary(op @ (ast::BinOp::Equal | ast::BinOp::NotEqual), box (left, right)) => {
-                let left = self.typecheck_expr(left);
-                let right = self.typecheck_expr(right);
+                let left = self.typecheck_and_convert(left);
+                let right = self.typecheck_and_convert(right);
 
                 let common_type = if left.ty.is_pointer_type() || right.ty.is_pointer_type() {
                     self.get_common_pointer_type(&left, &right)
@@ -402,9 +516,58 @@ impl TypeChecker {
 
                 TypedExpr::new(DefaultExpr::Binary(op, Box::new((left, right))), ast::Type::Int)
             },
+            DefaultExpr::Binary(ast::BinOp::Add, box (left, right)) => {
+                let left = self.typecheck_and_convert(left);
+                let right = self.typecheck_and_convert(right);
+
+                if left.ty.is_arithmetic() && right.ty.is_arithmetic() {
+                    let common_type = left.ty.get_common_type(&right.ty).clone();
+
+                    let left = self.convert_to(left, &common_type);
+                    let right = self.convert_to(right, &common_type);
+
+                    let ty = Type::Int;
+
+                    TypedExpr::new(DefaultExpr::Binary(ast::BinOp::Add, Box::new((left, right))), ty)
+                } else if left.ty.is_pointer_type() && right.ty.is_arithmetic() {
+                    let right = self.convert_to(right, &ast::Type::Int);
+                    let ty = left.ty.clone();
+                    TypedExpr::new(DefaultExpr::Binary(ast::BinOp::Add, Box::new((left, right))), ty)
+                } else if right.ty.is_pointer_type() && left.ty.is_arithmetic() {
+                    let left = self.convert_to(left, &ast::Type::Int);
+                    let ty = right.ty.clone();
+                    TypedExpr::new(DefaultExpr::Binary(ast::BinOp::Add, Box::new((left, right))), ty)
+                } else {
+                    panic!()
+                }
+            },
+            DefaultExpr::Binary(ast::BinOp::Sub, box (left, right)) => {
+                let left = self.typecheck_and_convert(left);
+                let right = self.typecheck_and_convert(right);
+
+                if left.ty.is_arithmetic() && right.ty.is_arithmetic() {
+                    let common_type = left.ty.get_common_type(&right.ty).clone();
+
+                    let left = self.convert_to(left, &common_type);
+                    let right = self.convert_to(right, &common_type);
+
+                    let ty = Type::Int;
+
+                    TypedExpr::new(DefaultExpr::Binary(ast::BinOp::Sub, Box::new((left, right))), ty)
+                } else if left.ty.is_pointer_type() && right.ty.is_arithmetic() {
+                    let right = self.convert_to(right, &ast::Type::Int);
+                    let ty = left.ty.clone();
+                    TypedExpr::new(DefaultExpr::Binary(ast::BinOp::Add, Box::new((left, right))), ty)
+                } else if left.ty.is_pointer_type() && left.ty == right.ty {
+                    let ty = left.ty.clone();
+                    TypedExpr::new(DefaultExpr::Binary(ast::BinOp::Add, Box::new((left, right))), ty)
+                } else {
+                    panic!()
+                }
+            },
             DefaultExpr::Binary(op, box (left, right)) => {
-                let left = self.typecheck_expr(left);
-                let right = self.typecheck_expr(right);
+                let left = self.typecheck_and_convert(left);
+                let right = self.typecheck_and_convert(right);
 
                 if op == ast::BinOp::And || op == ast::BinOp::Or {
                     return TypedExpr::new(DefaultExpr::Binary(op, Box::new((left, right))), Type::Int);
@@ -420,14 +583,14 @@ impl TypeChecker {
                 TypedExpr::new(DefaultExpr::Binary(op, Box::new((left, right))), ty)
             },
             DefaultExpr::Unary(ast::UnOp::Not, box inner) => {
-                let inner = self.typecheck_expr(inner);
+                let inner = self.typecheck_and_convert(inner);
 
                 let ty = Type::Int;
 
                 TypedExpr::new(DefaultExpr::Unary(ast::UnOp::Not, Box::new(inner)), ty)
             },
             DefaultExpr::Unary(ast::UnOp::Dereference, box inner) => {
-                let inner = self.typecheck_expr(inner);
+                let inner = self.typecheck_and_convert(inner);
 
                 match &inner.ty {
                     Type::Pointer(ty) => {
@@ -449,7 +612,7 @@ impl TypeChecker {
                 
             },
             DefaultExpr::Unary(op, box inner) => {
-                let inner = self.typecheck_expr(inner);
+                let inner = self.typecheck_and_convert(inner);
 
                 let ty = inner.ty.clone();
 
@@ -459,16 +622,16 @@ impl TypeChecker {
             },
             DefaultExpr::Var(v) => {
                 let ty = &self.symbol_table.get(&v).unwrap().ty;
-                if let Type::Fn { .. } = ty {
+                if matches!(ty, Type::Fn { .. }) {
                     panic!("Function used as variable");
                 }
 
                 TypedExpr::new(DefaultExpr::Var(v), ty.clone())
             },
             DefaultExpr::Ternary(box (cond, then_expr, else_expr)) => {
-                let cond = self.typecheck_expr(cond);
-                let then_expr = self.typecheck_expr(then_expr);
-                let else_expr = self.typecheck_expr(else_expr);
+                let cond = self.typecheck_and_convert(cond);
+                let then_expr = self.typecheck_and_convert(then_expr);
+                let else_expr = self.typecheck_and_convert(else_expr);
 
                 let common_type = if then_expr.ty.is_pointer_type() || else_expr.ty.is_pointer_type() {
                     self.get_common_pointer_type(&then_expr, &else_expr)
@@ -482,19 +645,36 @@ impl TypeChecker {
                 TypedExpr::new(DefaultExpr::Ternary(Box::new((cond, then_expr, else_expr))), common_type)
             },
             DefaultExpr::Cast(t, box inner) => {
-                let inner = self.typecheck_expr(inner);
+                let inner = self.typecheck_and_convert(inner);
+
+                if matches!(t, Type::Array(_, _)) {
+                    panic!("Cannot cast to an array type");
+                }
 
                 TypedExpr::new(DefaultExpr::Cast(t.clone(), Box::new(inner)), t)
+            },
+            DefaultExpr::Subscript(box (obj, idx)) => {
+                let obj = self.typecheck_and_convert(obj);
+                let idx = self.typecheck_and_convert(idx);
+
+                let (refed_ty, obj, idx) = if let Some(ty) = obj.ty.refed_ptr_ty() && idx.ty.is_arithmetic() {
+                    (ty.clone(), obj, self.convert_to(idx, &Type::Int))
+                } else if obj.ty.is_arithmetic() && let Some(ty) = idx.ty.refed_ptr_ty() {
+                    (ty.clone(), self.convert_to(obj, &Type::Int), idx)
+                } else {
+                    panic!("Subscript must have ptr and int operands");
+                };
+
+                TypedExpr::new(DefaultExpr::Subscript(Box::new((obj, idx))), refed_ty)
             }
         }
     }
 
     fn is_lvalue(&self, expr: &TypedExpr) -> bool {
         match expr.expr {
-            DefaultExpr::Var(_) => true,
-            DefaultExpr::Unary(ast::UnOp::Dereference, ref inner) => {
-                return self.is_lvalue(&inner)
-            },
+            DefaultExpr::Var(_) |
+            DefaultExpr::Unary(ast::UnOp::Dereference, _) |
+            DefaultExpr::Subscript(_) => true,
             _ => false
         }
     }
@@ -509,7 +689,7 @@ impl TypeChecker {
 
     fn is_null_pointer_constant(&self, expr: &TypedExpr) -> bool {
         match expr.expr {
-            DefaultExpr::Number(c) => {
+            DefaultExpr::Constant(c) => {
                 match c {
                     ast::Const::Int(0)   |
                     ast::Const::UInt(0) => true,

@@ -51,7 +51,7 @@ where
     StaticVar {
         name: Ident,
         global: bool,
-        init: StaticInit,
+        init: Vec<StaticInit>,
     }
 }
 
@@ -65,9 +65,12 @@ where
             TopLevel::StaticVar { name, global: _global, init } => {
                 f.write_str(".")?;
                 f.write_str(name.as_str())?;
-                f.write_str("\n\tDW ")?;
-                f.write_str(&init.to_string())?;
-                f.write_str("\n")
+                f.write_str("\n\tDW [")?;
+                init.iter().for_each(|i|{
+                    f.write_str(&i.to_string());
+                    f.write_str(", ");
+                });
+                f.write_str("]\n")
             }
         }
     }

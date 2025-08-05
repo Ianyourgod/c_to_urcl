@@ -93,17 +93,21 @@ pub enum ForInit<E> {
 pub struct VarDeclaration<E> {
     pub name: Ident,
     pub ty: Type,
-    pub expr: Option<E>,
+    pub expr: Option<Initializer<E>>,
     pub storage_class: Option<StorageClass>,
 }
 
 impl<E> VarDeclaration<E> {
-    pub fn new(name: Ident, ty: Type, expr: Option<E>, storage_class: Option<StorageClass>) -> Self {
+    pub fn new(name: Ident, ty: Type, expr: Option<Initializer<E>>, storage_class: Option<StorageClass>) -> Self {
         Self { name, ty, expr, storage_class }
     }
 }
 
-//trait ExprTy: std::fmt::Debug + Clone {}
+#[derive(Debug, Clone)]
+pub enum Initializer<E> {
+    Single(E),
+    Compound(Vec<Initializer<E>>)
+}
 
 #[derive(Debug, Clone)]
 pub struct TypedExpr {
@@ -124,13 +128,14 @@ impl TypedExpr {
 
 #[derive(Debug, Clone)]
 pub enum DefaultExpr<E> {
-    Number(Const),
+    Constant(Const),
     Binary(BinOp, Box<(E, E)>),
     Unary(UnOp, Box<E>),
     Var(Ident),
     Ternary(Box<(E, E, E)>),
     FunctionCall(Ident, Vec<E>),
     Cast(Type, Box<E>),
+    Subscript(Box<(E, E)>), // lowkey this could be a binop but its not parsed like that so i dont feel like doing it
 }
 
 #[derive(Debug, Clone)]
@@ -210,6 +215,7 @@ pub enum Type {
         ret_ty: Box<Type>,
     },
     Pointer(Box<Type>),
+    Array(Box<Type>, u16),
 }
 
 impl Type {
@@ -248,6 +254,7 @@ impl Type {
         match self {
             Type::Pointer(_) |
             Type::Fn { .. } |
+            Type::Array(_, _) |
             Type::UInt     => false,
 
             Type::Int => true
@@ -259,12 +266,20 @@ impl Type {
             Type::Int | Type::UInt => true,
 
             Type::Fn { .. } |
+            Type::Array(_, _) |
             Type::Pointer(_) => false,
         }
     }
 
     pub fn is_pointer_type(&self) -> bool {
-        if let Type::Pointer(_) = self { true } else { false }
+        matches!(self, Type::Pointer(_))
+    }
+
+    pub fn refed_ptr_ty<'a>(&'a self) -> Option<&'a Type> {
+        match self {
+            Type::Pointer(t) => Some(t.as_ref()),
+            _ => None
+        }
     }
 }
 
@@ -305,6 +320,7 @@ pub enum Declarator {
     Ident(Ident),
     Pointer(Box<Declarator>),
     Fn(Vec<ParamInfo>, Box<Declarator>),
+    Array(Box<Declarator>, u16),
 }
 
 impl Declarator {
@@ -317,7 +333,7 @@ impl Declarator {
                     Declarator::Ident(name) => {
                         let (names, types): (Vec<_>, Vec<_>) = params.into_iter().map(|param| {
                             let (name, t, _) = param.declarator.process(param.ty);
-                            if let Type::Fn { .. } = t {
+                            if matches!(t, Type::Fn { .. }) {
                                 panic!("Function pointers are not yet supported");
                             }
                             (name, t)
@@ -327,7 +343,8 @@ impl Declarator {
                     },
                     _ => panic!("Ummm this should be the top level...")
                 }
-            }
+            },
+            Declarator::Array(i, len) => i.process(Type::Array(Box::new(base_type), len))
         }
     }
 }
@@ -350,6 +367,7 @@ impl ParamInfo {
 #[derive(Debug, Clone)]
 pub enum AbstractDeclarator {
     Pointer(Box<AbstractDeclarator>),
+    Array(Box<AbstractDeclarator>, u16),
     Base,
 }
 
@@ -359,6 +377,9 @@ impl AbstractDeclarator {
             AbstractDeclarator::Pointer(box p) => {
                 p.process(Type::Pointer(Box::new(base_type)))
             },
+            AbstractDeclarator::Array(box i, len) => {
+                i.process(Type::Array(Box::new(base_type), len))
+            }
             AbstractDeclarator::Base => base_type
         }
     }

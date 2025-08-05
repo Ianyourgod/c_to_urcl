@@ -8,7 +8,7 @@ pub fn mir_to_asm(mir: mir_def::Program, symbol_table: &SymbolTable) -> asm::Pro
     let generator = convert::ASMGenerator::new(symbol_table);
     let inital = generator.mir_to_asm(mir);
 
-    //std::fs::write("pre_pval_removal.urcl", inital.to_string()).unwrap();
+    std::fs::write("pre_pval_removal.urcl", inital.to_string()).unwrap();
 
     let no_pvals = remove_pseudo::fix_pvals(inital, symbol_table);
 

@@ -224,6 +224,37 @@ impl<'a> ASMGenerator<'a> {
                     offset: asm::PVal::Imm(0),
                     dst
                 });
+            },
+            mir_def::Instruction::AddPtr { ptr, idx, scale, dst } => {
+                // mult idx and scale, then add with ptr
+                let ptr = self.val_to_asm(ptr, instructions);
+                let idx = self.val_to_asm(idx, instructions);
+
+                instructions.push(asm::Instr::Binary {
+                    binop: asm::Binop::Mul,
+                    src1: idx,
+                    src2: asm::PVal::Imm(scale as i32),
+                    dst: asm::PVal::Var(dst.clone())
+                });
+
+                instructions.push(asm::Instr::Binary {
+                    binop: asm::Binop::Add,
+                    src1: ptr,
+                    src2: asm::PVal::Var(dst.clone()),
+                    dst: asm::PVal::Var(dst.clone())
+                });
+            },
+            mir_def::Instruction::CopyToOffset { src, offset, dst } => {
+                let src = self.val_to_asm(src, instructions);
+
+                //println!("STR {:?} -> {:?} - {offset}", src, dst);
+
+                instructions.push(asm::Instr::Lea { src: asm::PVal::Var(dst), dst: asm::Reg::pval(7) });
+                instructions.push(asm::Instr::LStr {
+                    src,
+                    dst: asm::Reg::pval(7),
+                    offset: asm::PVal::Imm(offset as i32)
+                })
             }
         }
     }
