@@ -49,6 +49,8 @@ impl<'s> Generator<'s> {
                                 mir_def::Type::Int => vec![mir_def::StaticInit::IntInit(0)],
                                 mir_def::Type::UInt => vec![mir_def::StaticInit::UIntInit(0)],
                                 mir_def::Type::Pointer(_) => vec![mir_def::StaticInit::UIntInit(0)],
+                                mir_def::Type::Char => vec![mir_def::StaticInit::CharInit(0)],
+                                mir_def::Type::UChar => vec![mir_def::StaticInit::UCharInit(0)],
                                 mir_def::Type::Array(ref inner_ty, len) => {
                                     (0..len).into_iter().flat_map(|_| {
                                         let size = get_size_of_type(inner_ty.as_ref());
@@ -60,6 +62,13 @@ impl<'s> Generator<'s> {
                         })); },
                         InitialValue::NoInit => continue,
                     }
+                },
+                IdentifierAttrs::Constant { ref init } => {
+                    top_level.push(mir_def::TopLevel::Const {
+                        name: name.clone(),
+                        ty: entry.ty.clone(),
+                        init: init.clone()
+                    });
                 },
                 _ => continue,
             }
@@ -92,6 +101,8 @@ pub fn get_size_of_type(ty: &ast::Type) -> u16 {
     match ty {
         &ast::Type::UInt |
         &ast::Type::Pointer(_) |
+        &ast::Type::Char |
+        &ast::Type::UChar |
         &ast::Type::Int => 1,
 
         &ast::Type::Array(ref inner_ty, len) => {
@@ -182,6 +193,24 @@ impl<'l> FunctionGenerator<'l> {
 
         if let Some(init) = decl.expr {
             match init {
+                ast::Initializer::Single(TypedExpr{expr:ast::DefaultExpr::String(s),ty:_}) => {
+                    let mut current_offset = 0;
+                    s.chars().into_iter().for_each(|c| {
+                        let n = c as i16;
+                        self.current_block.instructions.push(mir_def::Instruction::CopyToOffset {
+                            src: mir_def::Val::Num(mir_def::Const::Char(n)),
+                            offset: current_offset,
+                            dst: decl.name.clone()
+                        });
+
+                        current_offset += 1;
+                    });
+                    self.current_block.instructions.push(mir_def::Instruction::CopyToOffset {
+                        src: mir_def::Val::Num(mir_def::Const::Char(0)),
+                        offset: current_offset,
+                        dst: decl.name.clone()
+                    });
+                },
                 ast::Initializer::Single(expr) => {
                     let v = self.generate_expr_and_convert(expr, symbol_table);
                     self.current_block.instructions.push(mir_def::Instruction::Copy {
@@ -854,7 +883,20 @@ impl<'l> FunctionGenerator<'l> {
                 });
 
                 ExprResult::DerefedPtr(mir_def::Val::Var(dst))
-            }
+            },
+            ast::DefaultExpr::String(string) => {
+                let num = *self.tmp_count;
+                let str_name = format!(".str.mir.{num}.");
+                let str_name = Rc::new(str_name);
+                let str_len = string.len();
+                symbol_table.insert(str_name.clone(), SymbolTableEntry::new(
+                    ast::Type::Array(Box::new(ast::Type::Char), (str_len+1) as u16),
+                    IdentifierAttrs::Constant {
+                        init: mir_def::StaticInit::String { val: string, null_terminated: true }
+                    }
+                ));
+                ExprResult::Plain(mir_def::Val::Var(str_name))
+            },
         }
     }
 }

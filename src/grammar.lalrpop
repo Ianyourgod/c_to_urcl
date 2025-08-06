@@ -73,6 +73,7 @@ Specifier: Specifier = {
     "static"   => Specifier::Static,
     "int"      => Specifier::Int,
     "unsigned" => Specifier::Unsigned,
+    "char"     => Specifier::Char,
 };
 
 Type: Type = {
@@ -85,6 +86,7 @@ Type: Type = {
                     panic!("Didn't expect an storage class specifiers here... only types....");
                 },
 
+                Specifier::Char        |
                 Specifier::Int         |
                 Specifier::Signed      |
                 Specifier::Unsigned => {
@@ -112,6 +114,7 @@ TypeAndStorageClass: (Type, Option<StorageClass>) = {
                     storage_class = Some(StorageClass::Static);
                 },
 
+                Specifier::Char        |
                 Specifier::Int         |
                 Specifier::Signed      |
                 Specifier::Unsigned => {
@@ -354,6 +357,7 @@ PrimaryTerm: Expr = {
     "(" <Expr> ")",
     Ident => Expr::new(DefaultExpr::Var(<>)),
     <n:Ident> "(" <p:Comma<Expr>> ")" => Expr::new(DefaultExpr::FunctionCall(n, p)),
+    <strings:String+> => Expr::new(DefaultExpr::String(strings.join(""))),
 };
 
 UnOp: UnOp = {
@@ -380,20 +384,24 @@ DirectAbstractDeclarator: AbstractDeclarator = {
 ArrayDeclLen: u16 = {
     "[" <Const> "]" => {
         match <> {
+            Const::Char(n) |
             Const::Int(n) => n as u16,
+            Const::UChar(n) |
             Const::UInt(n) => n,
+            
         }
     }
 };
 
 Const: Const = {
     Int => Const::Int(<>),
-    UInt => Const::UInt(<>)
+    UInt => Const::UInt(<>),
+    Char => Const::Int(<>),
 };
 
 Int: i16 = {
     r"[0-9]+" => i16::from_str(<>).unwrap()
-}
+};
 
 UInt: u16 = {
     r"[0-9]+[uU]" => {
@@ -401,8 +409,50 @@ UInt: u16 = {
         let n = &<>[..l-1];
         u16::from_str(n).unwrap()
     }
-}
+};
 
 Ident: Ident = {
     r"[a-zA-Z_][a-zA-Z0-9_]*" => Rc::new(<>.to_string()),
-}
+};
+
+Char: i16 = {
+    <r"'[ -&(-~]'"> => <>.chars().nth(1).unwrap() as i16,
+    "'\\''" => 39,
+    "'\\\"'" => 34,
+    "'\\?'" => 63,
+    "'\\\\'" => 92,
+    "'\\a'" => 7,
+    "'\\b'" => 8,
+    "'\\f'" => 12,
+    "'\\n'" => 10,
+    "'\\r'" => 13,
+    "'\\t'" => 9,
+    "'\\v'" => 11,
+};
+
+String: String = {
+    r#""[ -~]*""# => {
+        let sn = <>;
+        let s = &sn[1..sn.len()-1];
+        let mut chars = s.chars();
+        let mut string = String::new();
+        while let Some(cur_char) = chars.next() {
+            if cur_char == '\\' {
+                let next = chars.next().unwrap();
+                match next {
+                    'a' => string.push('\u{07}'),
+                    'b' => string.push('\u{08}'),
+                    'f' => string.push('\u{12}'),
+                    'n' => string.push('\n'),
+                    'r' => string.push('\r'),
+                    't' => string.push('\t'),
+                    'v' => string.push('\u{11}'),
+                    _ => string.push(next),
+                }
+            } else {
+                string.push(cur_char);
+            }
+        }
+        string
+    }
+};

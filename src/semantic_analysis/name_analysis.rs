@@ -282,6 +282,7 @@ impl Analyzer {
                 ast::DefaultExpr::Cast(ty, Box::new(inner))
             }
 
+            ast::DefaultExpr::String(_)    |
             ast::DefaultExpr::Constant(_) => expr.0,
         })
     }

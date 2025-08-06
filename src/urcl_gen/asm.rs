@@ -31,7 +31,7 @@ HLT
         let header_info = self.header_info;
 
         let mut out = format!(
-            "{header_info}\n\nIMM $2 0\nIMM $3 0\nCAL .main\n{print_num}"
+            "{header_info}\n\nMOV $2 SP\nCAL .main\n{print_num}"
         );
 
         for func in &self.top_level_items {
@@ -52,7 +52,11 @@ where
         name: Ident,
         global: bool,
         init: Vec<StaticInit>,
-    }
+    },
+    StaticConst {
+        name: Ident,
+        init: StaticInit,
+    },
 }
 
 impl<V> Display for TopLevel<V>
@@ -70,6 +74,13 @@ where
                     f.write_str(&i.to_string());
                     f.write_str(", ");
                 });
+                f.write_str("]\n")
+            },
+            TopLevel::StaticConst { name, init } => {
+                f.write_str(".")?;
+                f.write_str(name.as_str())?;
+                f.write_str("\n\tDW [")?;
+                f.write_str(&init.to_string())?;
                 f.write_str("]\n")
             }
         }

@@ -4,8 +4,7 @@ MINHEAP 256
 RUN ROM
 MINSTACK 16
 
-IMM $2 0
-IMM $3 0
+MOV $2 SP
 CAL .main
 SBGE ..COMP_BLT_IN..PRINT_NUM..P_N $1 0
 OUT %TEXT 45
@@ -13,26 +12,36 @@ OUT %TEXT 45
 ABS $2 $1
 OUT %NUMB $2
 HLT
+.print_str
+	PSH $2
+	MOV $2 SP
+	SUB SP SP 1
+	LLOD $7 $2 2
+	LSTR $2 -1 $7
+	.lbl.gen.1.
+	MOV $1 0
+	MOV SP $2
+	POP $2
+	RET
 .main
 	PSH $2
 	MOV $2 SP
 	SUB SP SP 3
-	.lbl.gen.1.
-	MOV $7 .b
-	LSTR $2 0 $7
-	MLT $7 1 1
+	.lbl.gen.4.
+	MOV $7 ..str.mir.4.
 	LSTR $2 -1 $7
-	LLOD $7 $2 0
-	LLOD $8 $2 -1
-	ADD $7 $7 $8
-	LSTR $2 -1 $7
-	LLOD $8 $2 -1
-	LLOD $7 $8 0
+	LLOD $7 $2 -1
+	MOV $7 $7
 	LSTR $2 -2 $7
 	LLOD $7 $2 -2
+	PSH $7
+	CAL .print_str
+	MOV $7 $1
+	LSTR $2 -3 $7
+	LLOD $7 $2 -3
 	MOV $1 $7
 	MOV SP $2
 	POP $2
 	RET
-.b
-	DW [1, 2, ]
+..str.mir.4.
+	DW ["hiiii!!!", 0]

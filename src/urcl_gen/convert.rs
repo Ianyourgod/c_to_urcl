@@ -45,6 +45,9 @@ impl<'a> ASMGenerator<'a> {
                             global: static_var.global,
                             init: static_var.init
                         }
+                    },
+                    mir_def::TopLevel::Const { name, ty: _ty, init } => {
+                        asm::TopLevel::StaticConst { name, init }
                     }
                 }
             }).collect()
@@ -131,6 +134,8 @@ impl<'a> ASMGenerator<'a> {
                 match n {
                     mir_def::Const::Int(_) => mir_def::Type::Int,
                     mir_def::Const::UInt(_) => mir_def::Type::UInt,
+                    mir_def::Const::Char(_) => mir_def::Type::Char,
+                    mir_def::Const::UChar(_) => mir_def::Type::UChar,
                 }
             },
             mir_def::Val::Var(v) => {
@@ -183,14 +188,15 @@ impl<'a> ASMGenerator<'a> {
                             src: asm::PVal::Var(src),
                             dst: asm::PVal::Var(dst)
                         });
-                    }
+                    },
+                    IdentifierAttrs::Constant { .. } |
                     IdentifierAttrs::Static { .. } => {
                         let v = asm::PVal::Label(src);
                         instructions.push(asm::Instr::Mov {
                             src: v,
                             dst: asm::PVal::Var(dst)
                         })
-                    }
+                    },
                 }
             }
             mir_def::Instruction::FunctionCall { name, args, dst } => {
@@ -292,8 +298,11 @@ impl<'a> ASMGenerator<'a> {
     fn val_to_asm(&self, val: mir_def::Val, _instructions: &mut Vec<asm::Instr<asm::PVal>>) -> asm::PVal {
         match val {
             mir_def::Val::Num(n) => asm::PVal::Imm(match n {
+                mir_def::Const::Char(n) |
                 mir_def::Const::Int(n) => n as i32,
+                mir_def::Const::UChar(n) |
                 mir_def::Const::UInt(n) => n as i32,
+                
             }),
             mir_def::Val::Var(v) => asm::PVal::Var(v)
         }

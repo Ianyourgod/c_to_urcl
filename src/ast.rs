@@ -136,6 +136,7 @@ pub enum DefaultExpr<E> {
     FunctionCall(Ident, Vec<E>),
     Cast(Type, Box<E>),
     Subscript(Box<(E, E)>), // lowkey this could be a binop but its not parsed like that so i dont feel like doing it
+    String(String),
 }
 
 #[derive(Debug, Clone)]
@@ -216,6 +217,8 @@ pub enum Type {
     },
     Pointer(Box<Type>),
     Array(Box<Type>, u16),
+    Char,
+    UChar,
 }
 
 impl Type {
@@ -236,6 +239,20 @@ impl Type {
             panic!("Type cannot be both signed and unsigned");
         }
 
+        if specifiers.contains(&Specifier::Char) {
+            // default is signed
+
+            if specifiers.len() == 1 || (specifiers.len() == 2 && specifiers.contains(&Specifier::Signed)) {
+                return Self::Char;
+            }
+
+            if specifiers.len() == 2 && specifiers.contains(&Specifier::Unsigned) {
+                return Self::UChar;
+            }
+
+            panic!("Invalid type specifier");
+        }
+
         if specifiers.contains(&Specifier::Unsigned) {
             return Self::UInt;
         }
@@ -243,11 +260,21 @@ impl Type {
         return Self::Int;
     }
 
-    pub fn get_common_type<'a>(&'a self, other: &'a Type) -> &'a Type {
-        if self == other { return self; }
+    pub fn get_common_type(&self, other: &Type) -> Type {
+        let left_ty = self;
+        let right_ty = other;
+        
+        let left_ty = if left_ty.is_char_ty() { &Type::Int } else { left_ty };
+        let right_ty = if right_ty.is_char_ty() { &Type::Int } else { right_ty };
+        
+        if left_ty == right_ty { return left_ty.clone(); }
 
-        if self.is_signed() { return other; }
-        else                { return self;  }
+        if left_ty.is_signed() { return right_ty.clone(); }
+        else                   {  return left_ty.clone(); }
+    }
+
+    pub fn is_char_ty(&self) -> bool {
+        matches!(self, Type::Char | Type::UChar)
     }
 
     pub fn is_signed(&self) -> bool {
@@ -255,15 +282,18 @@ impl Type {
             Type::Pointer(_) |
             Type::Fn { .. } |
             Type::Array(_, _) |
-            Type::UInt     => false,
+            Type::UChar |
+            Type::UInt => false,
 
+            Type::Char |
             Type::Int => true
         }
     }
 
     pub fn is_arithmetic(&self) -> bool {
         match self {
-            Type::Int | Type::UInt => true,
+            Type::Char | Type::UChar |
+            Type::Int  | Type::UInt => true,
 
             Type::Fn { .. } |
             Type::Array(_, _) |
@@ -296,19 +326,24 @@ pub enum Specifier {
     Int,
     Unsigned,
     Signed,
+    Char,
 }
 
 #[derive(Debug, Clone, Copy, Eq, PartialEq)]
 pub enum Const {
     Int(i16),
     UInt(u16),
+    Char(i16),
+    UChar(u16),
 }
 
 impl Const {
     pub fn to_type(&self) -> Type {
         match self {
             Self::Int(_) => Type::Int,
-            Self::UInt(_) => Type::UInt
+            Self::UInt(_) => Type::UInt,
+            Self::Char(_) => Type::Char,
+            Self::UChar(_) => Type::UChar,
         }
     }
 }

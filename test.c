@@ -1,5 +1,7 @@
-int b[3] = { 1, 2 };
+int print_str(char* str);
 
 int main(void) {
-    return b[1];
+    char* sigma = "hiiii!!!";
+
+    return print_str(sigma);
 }

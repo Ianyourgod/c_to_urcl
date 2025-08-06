@@ -32,7 +32,12 @@ pub struct Program {
 #[derive(Debug, Clone)]
 pub enum TopLevel {
     Fn(Function),
-    Var(StaticVariable)
+    Var(StaticVariable),
+    Const {
+        name: Ident,
+        ty: Type,
+        init: StaticInit
+    },
 }
 
 #[derive(Debug, Clone)]

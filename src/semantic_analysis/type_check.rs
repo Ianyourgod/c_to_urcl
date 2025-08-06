@@ -1,5 +1,6 @@
 use std::collections::HashMap;
 use std::fmt::Display;
+use std::rc::Rc;
 
 use crate::ast::{self, Expr, TypedExpr, DefaultExpr, Type, Statement};
 use crate::Ident;
@@ -34,6 +35,9 @@ pub enum IdentifierAttrs {
         init: InitialValue,
         global: bool,
     },
+    Constant {
+        init: StaticInit
+    },
     Local
 }
 
@@ -44,10 +48,17 @@ pub enum InitialValue {
     NoInit,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum StaticInit {
     IntInit(i16),
     UIntInit(u16),
+    CharInit(i16),
+    UCharInit(u16),
+    String {
+        val: String,
+        null_terminated: bool
+    },
+    Pointer(Ident), // pointer to another static object
     ZeroInit,
 }
 
@@ -55,8 +66,10 @@ impl StaticInit {
     #[allow(dead_code)]
     pub fn from_const(c: ast::Const) -> Self {
         match c {
+            ast::Const::Char(n) |
             ast::Const::Int(n) => Self::IntInit(n),
-            ast::Const::UInt(n) => Self::UIntInit(n)
+            ast::Const::UChar(n) |
+            ast::Const::UInt(n) => Self::UIntInit(n),
         }
     }
 }
@@ -66,6 +79,13 @@ impl Display for StaticInit {
         let s = match self {
             StaticInit::IntInit(n) => &n.to_string(),
             StaticInit::UIntInit(n) => &n.to_string(),
+            StaticInit::CharInit(n) => &n.to_string(),
+            StaticInit::UCharInit(n) => &n.to_string(),
+            StaticInit::String { val, null_terminated } => {
+                let null_term = if *null_terminated { ", 0" } else { "" };
+                &format!("\"{val}\"{null_term}")
+            },
+            StaticInit::Pointer(n) => &format!(".{n}"),
             StaticInit::ZeroInit => "0"
         };
 
@@ -92,6 +112,7 @@ impl SymbolTable {
 pub struct TypeChecker {
     symbol_table: SymbolTable,
     current_ret_ty: Type,
+    strings: u32
 }
 
 impl TypeChecker {
@@ -99,6 +120,7 @@ impl TypeChecker {
         Self {
             symbol_table: SymbolTable::new(),
             current_ret_ty: Type::Int,
+            strings: 0
         }
     }
 
@@ -234,21 +256,60 @@ impl TypeChecker {
             (ast::Initializer::Compound(inits), ast::Type::Array(_, _)) => {
                 self.compound_init_to_static_inits_rec(inits, ty)
             },
+            (ast::Initializer::Single(Expr(DefaultExpr::String(s))), ast::Type::Pointer(inner_ty)) => {
+                if !inner_ty.is_char_ty() {
+                    panic!("Cannot use a string initializer for a non-char pointer");
+                }
+
+                let string_name = self.strings;
+                self.strings += 1;
+                let string_name = format!(".str..{string_name}.");
+
+                let str_len = s.len();
+
+                let string_name = Rc::new(string_name);
+
+                self.symbol_table.insert(string_name.clone(),
+                    SymbolTableEntry::new(
+                        ast::Type::Array(Box::new(ast::Type::Char), (str_len+1) as u16),
+                        IdentifierAttrs::Constant { init: StaticInit::String { val: s, null_terminated: true } }
+                    )
+                );
+
+                let init = StaticInit::Pointer(string_name);
+
+                vec![init]
+            }
+            (ast::Initializer::Single(Expr(DefaultExpr::String(s))), ast::Type::Array(inner_ty, len)) => {
+                if !inner_ty.is_char_ty() {
+                    panic!("Cannot initialize non-char array with a string");
+                }
+                if s.len() > *len as usize {
+                    panic!("String too long for array");
+                }
+                let null_terminated = s.len() != *len as usize;
+                let extra_needed = (*len as i16 - s.len() as i16) - 1;
+                let init = StaticInit::String { val: s, null_terminated };
+
+                let extra = if extra_needed >= 0 { std::iter::repeat_n(self.static_zero_init(&inner_ty).into_iter().next().unwrap(), extra_needed as usize).collect() } else { vec![] };
+
+                let mut out = vec![init];
+                out.extend(extra.into_iter());
+                out
+            },
             (_, ast::Type::Array(_, _)) => panic!("Cannot initialize array to non-compound"),
-            (ast::Initializer::Single(expr), _) => vec![self.handle_single_init(expr)],
+            (ast::Initializer::Single(Expr(DefaultExpr::Constant(c))), _) => vec![self.const_to_init(c)],
             (_, _) => panic!("Invalid static init"),
         }
     }
 
-    fn handle_single_init(&self, expr: Expr) -> StaticInit {
+    fn const_to_init(&self, c: ast::Const) -> StaticInit {
         // TODO! we don't check that pointers are 0
-        if let DefaultExpr::Constant(c) = expr.0 {
-            match c {
-                ast::Const::Int(n) => StaticInit::IntInit(n),
-                ast::Const::UInt(n) => StaticInit::UIntInit(n)
-            }
-        } else {
-            panic!("Cannot initialize static var to non-const or non compound");
+        match c {
+            ast::Const::Int(n) => StaticInit::IntInit(n),
+            ast::Const::UInt(n) => StaticInit::UIntInit(n),
+            ast::Const::Char(n) => StaticInit::CharInit(n),
+            ast::Const::UChar(n) => StaticInit::UCharInit(n),
         }
     }
 
@@ -268,7 +329,8 @@ impl TypeChecker {
                     inits.into_iter().chain(std::iter::repeat(StaticInit::ZeroInit).take(needed_zeros)).collect()
                 },
                 (ast::Initializer::Compound(_), _) => panic!("Cannot use compound on non-compound type"),
-                (ast::Initializer::Single(s), _) => vec![self.handle_single_init(s)]
+                (ast::Initializer::Single(Expr(DefaultExpr::Constant(c))), _) => vec![self.const_to_init(c)],
+                (_, _) => panic!("You did something wrong with a compound static init")
             }
         }).collect()
     }
@@ -284,6 +346,8 @@ impl TypeChecker {
             ast::Type::Int => vec![StaticInit::IntInit(0)],
             ast::Type::UInt => vec![StaticInit::UIntInit(0)],
             ast::Type::Pointer(_) => vec![StaticInit::IntInit(0)],
+            ast::Type::Char => vec![StaticInit::CharInit(0)],
+            ast::Type::UChar => vec![StaticInit::UCharInit(0)],
 
             ast::Type::Fn { .. } => unreachable!()
         }
@@ -329,6 +393,16 @@ impl TypeChecker {
 
     fn typecheck_init(&mut self, init: ast::Initializer<Expr>, target_type: Type) -> ast::Initializer<TypedExpr> {
         match (&target_type, init) {
+            (Type::Array(inner_ty, len), ast::Initializer::Single(Expr(DefaultExpr::String(s)))) => {
+                if !inner_ty.is_char_ty() {
+                    panic!("Cannot initialize a non-char array with a string");
+                }
+                if s.len() > *len as usize {
+                    panic!("Too many characters in string");
+                }
+
+                ast::Initializer::Single(TypedExpr::new(DefaultExpr::String(s), target_type))
+            },
             (_, ast::Initializer::Single(expr)) => {
                 let expr = self.typecheck_and_convert(expr);
                 let expr = self.convert_by_assignment(expr, &target_type);
@@ -360,7 +434,9 @@ impl TypeChecker {
             Type::Pointer(_) => ast::Initializer::Single(TypedExpr::new(DefaultExpr::Constant(ast::Const::Int(0)), ty.clone())),
             Type::Array(ty, len) => {
                 ast::Initializer::Compound(std::iter::repeat(self.zero_init(ty.as_ref())).take(*len as usize).collect())
-            }
+            },
+            Type::Char => ast::Initializer::Single(TypedExpr::new(DefaultExpr::Constant(ast::Const::Char(0)), ast::Type::Char)),
+            Type::UChar => ast::Initializer::Single(TypedExpr::new(DefaultExpr::Constant(ast::Const::UChar(0)), ast::Type::UChar)),
 
             Type::Fn { .. } => panic!("Cannot zero init a function"),
         }
@@ -506,10 +582,10 @@ impl TypeChecker {
                 let right = self.typecheck_and_convert(right);
 
                 let common_type = if left.ty.is_pointer_type() || right.ty.is_pointer_type() {
-                    self.get_common_pointer_type(&left, &right)
+                    self.get_common_pointer_type(&left, &right).clone()
                 } else {
                     left.ty.get_common_type(&right.ty)
-                }.clone();
+                };
 
                 let left = self.convert_to(left, &common_type);
                 let right = self.convert_to(right, &common_type);
@@ -521,7 +597,7 @@ impl TypeChecker {
                 let right = self.typecheck_and_convert(right);
 
                 if left.ty.is_arithmetic() && right.ty.is_arithmetic() {
-                    let common_type = left.ty.get_common_type(&right.ty).clone();
+                    let common_type = left.ty.get_common_type(&right.ty);
 
                     let left = self.convert_to(left, &common_type);
                     let right = self.convert_to(right, &common_type);
@@ -546,7 +622,7 @@ impl TypeChecker {
                 let right = self.typecheck_and_convert(right);
 
                 if left.ty.is_arithmetic() && right.ty.is_arithmetic() {
-                    let common_type = left.ty.get_common_type(&right.ty).clone();
+                    let common_type = left.ty.get_common_type(&right.ty);
 
                     let left = self.convert_to(left, &common_type);
                     let right = self.convert_to(right, &common_type);
@@ -573,7 +649,7 @@ impl TypeChecker {
                     return TypedExpr::new(DefaultExpr::Binary(op, Box::new((left, right))), Type::Int);
                 }
 
-                let common_type = left.ty.get_common_type(&right.ty).clone();
+                let common_type = left.ty.get_common_type(&right.ty);
 
                 let left = self.convert_to(left, &common_type);
                 let right = self.convert_to(right, &common_type);
@@ -617,6 +693,7 @@ impl TypeChecker {
                 let ty = inner.ty.clone();
 
                 if ty.is_pointer_type() { panic!("Cannot negate or complement a pointer"); }
+                let inner = if ty.is_char_ty() { self.convert_to(inner, &Type::Int) } else { inner };
 
                 TypedExpr::new(DefaultExpr::Unary(op, Box::new(inner)), ty)
             },
@@ -634,10 +711,10 @@ impl TypeChecker {
                 let else_expr = self.typecheck_and_convert(else_expr);
 
                 let common_type = if then_expr.ty.is_pointer_type() || else_expr.ty.is_pointer_type() {
-                    self.get_common_pointer_type(&then_expr, &else_expr)
+                    self.get_common_pointer_type(&then_expr, &else_expr).clone()
                 } else {
                     then_expr.ty.get_common_type(&else_expr.ty)
-                }.clone();
+                };
 
                 let then_expr = self.convert_to(then_expr, &common_type);
                 let else_expr = self.convert_to(else_expr, &common_type);
@@ -666,6 +743,11 @@ impl TypeChecker {
                 };
 
                 TypedExpr::new(DefaultExpr::Subscript(Box::new((obj, idx))), refed_ty)
+            },
+
+            DefaultExpr::String(s) => {
+                let len = s.len() + 1;
+                TypedExpr::new(DefaultExpr::String(s), Type::Array(Box::new(Type::Char), len as u16)) 
             }
         }
     }

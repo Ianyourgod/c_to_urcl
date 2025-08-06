@@ -38,7 +38,8 @@ impl<'a> RemovePseudo<'a> {
             top_level_items: program.top_level_items.into_iter().map(|f| {
                 match f {
                     asm::TopLevel::Fn(f) => asm::TopLevel::Fn(self.generate_function(f)),
-                    asm::TopLevel::StaticVar { name, global, init } => asm::TopLevel::StaticVar { name, global, init }
+                    asm::TopLevel::StaticVar { name, global, init } => asm::TopLevel::StaticVar { name, global, init },
+                    asm::TopLevel::StaticConst { name, init } => asm::TopLevel::StaticConst { name, init }
                 }
             }).collect()
         }
@@ -161,6 +162,7 @@ impl<'a> RemovePseudo<'a> {
 
                                 instructions.push(asm::Instr::Binary { binop: asm::Binop::Sub, src1: asm::Reg::bp_val(), src2: asm::Val::Imm(v as i32), dst });
                             },
+                            IdentifierAttrs::Constant { .. } |
                             IdentifierAttrs::Static { .. } => {
                                 let src = asm::Val::Label(v);
                                 instructions.push(asm::Instr::Mov { src, dst });
@@ -193,6 +195,7 @@ impl<'a> RemovePseudo<'a> {
                     let entry = self.symbol_table.get(&v).unwrap();
 
                     match entry.attrs {
+                        IdentifierAttrs::Constant { .. } |
                         IdentifierAttrs::Static { .. } => {
                             VarPosition::Label(v)
                         }
@@ -236,11 +239,12 @@ impl<'a> RemovePseudo<'a> {
             match entry.attrs {
                 IdentifierAttrs::Local => {
                     self.stack_offset += get_size_of_type(&entry.ty) as u32;
-                    VarPosition::Stack(self.stack_offset-1)
+                    VarPosition::Stack(self.stack_offset)
                 },
+                IdentifierAttrs::Constant { .. } |
                 IdentifierAttrs::Static { .. } => {
                     VarPosition::Label(var)
-                }
+                },
                 IdentifierAttrs::Fn { .. } => unreachable!()
             }
         }).clone()
