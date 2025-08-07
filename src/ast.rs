@@ -65,7 +65,7 @@ pub enum BlockItem<E> {
 
 #[derive(Debug, Clone)]
 pub enum Statement<E> {
-    Return(E),
+    Return(Option<E>),
     Expr(E),
     If(E, Box<(Statement<E>, Option<Statement<E>>)>),
     Block(Block<E>),
@@ -137,6 +137,8 @@ pub enum DefaultExpr<E> {
     Cast(Type, Box<E>),
     Subscript(Box<(E, E)>), // lowkey this could be a binop but its not parsed like that so i dont feel like doing it
     String(String),
+    SizeOf(Box<E>),
+    SizeOfT(Type),
 }
 
 #[derive(Debug, Clone)]
@@ -219,6 +221,7 @@ pub enum Type {
     Array(Box<Type>, u16),
     Char,
     UChar,
+    Void,
 }
 
 impl Type {
@@ -233,6 +236,14 @@ impl Type {
 
         if specifiers.len() == 0 {
             panic!("Must have a type specifier");
+        }
+
+        if specifiers.contains(&Specifier::Void) {
+            if specifiers.len() > 1 {
+                panic!("Void cannot have any modifiers");
+            }
+
+            return Self::Void;
         }
 
         if specifiers.contains(&Specifier::Signed) && specifiers.contains(&Specifier::Unsigned) {
@@ -280,6 +291,7 @@ impl Type {
     pub fn is_signed(&self) -> bool {
         match self {
             Type::Pointer(_) |
+            Type::Void |
             Type::Fn { .. } |
             Type::Array(_, _) |
             Type::UChar |
@@ -297,6 +309,7 @@ impl Type {
 
             Type::Fn { .. } |
             Type::Array(_, _) |
+            Type::Void |
             Type::Pointer(_) => false,
         }
     }
@@ -310,6 +323,35 @@ impl Type {
             Type::Pointer(t) => Some(t.as_ref()),
             _ => None
         }
+    }
+
+    pub fn is_void_ptr(&self) -> bool {
+        matches!(self, Self::Pointer(box Self::Void))
+    }
+
+    pub fn is_scalar(&self) -> bool {
+        match self {
+            Self::Void |
+            Self::Array(_, _) |
+            Self::Fn { .. } => false,
+
+            _ => true,
+        }
+    }
+
+    pub fn is_complete(&self) -> bool {
+        !matches!(self, Self::Void)
+    }
+
+    pub fn is_pointer_to_complete(&self) -> bool {
+        match self {
+            Self::Pointer(inner) => inner.is_complete(),
+            _ => false,
+        }
+    }
+
+    pub fn is_void(&self) -> bool {
+        matches!(self, Self::Void)
     }
 }
 
@@ -327,6 +369,7 @@ pub enum Specifier {
     Unsigned,
     Signed,
     Char,
+    Void,
 }
 
 #[derive(Debug, Clone, Copy, Eq, PartialEq)]

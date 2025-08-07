@@ -50,7 +50,7 @@ ClosedStatement: Statement<Expr> = {
 }
 
 NormalStatement: Statement<Expr> = {
-    "return" <e:Expr> ";" => Statement::Return(e),
+    "return" <e:Expr?> ";" => Statement::Return(e),
     <e:Expr> ";" => Statement::Expr(e),
     Block => Statement::Block(<>),
     "break" ";" => Statement::Break(0),
@@ -74,6 +74,7 @@ Specifier: Specifier = {
     "int"      => Specifier::Int,
     "unsigned" => Specifier::Unsigned,
     "char"     => Specifier::Char,
+    "void"     => Specifier::Void,
 };
 
 Type: Type = {
@@ -86,6 +87,7 @@ Type: Type = {
                     panic!("Didn't expect an storage class specifiers here... only types....");
                 },
 
+                Specifier::Void        |
                 Specifier::Char        |
                 Specifier::Int         |
                 Specifier::Signed      |
@@ -114,6 +116,7 @@ TypeAndStorageClass: (Type, Option<StorageClass>) = {
                     storage_class = Some(StorageClass::Static);
                 },
 
+                Specifier::Void        |
                 Specifier::Char        |
                 Specifier::Int         |
                 Specifier::Signed      |
@@ -286,7 +289,7 @@ Expr1: Expr = {
 }
 
 Expr0: Expr = {
-    UnaryTerm,
+    Factor,
 };
 
 BinOpMulDivMod: BinOp = {
@@ -329,17 +332,30 @@ Assign: AssignType = {
     "&=" => AssignType::BitwiseAnd,
     "|=" => AssignType::BitwiseOr,
     "^=" => AssignType::BitwiseXor
-}
+};
+
+Factor: Expr = {
+    Cast
+};
 
 UnaryTerm: Expr = {
-    "(" <t:Type> <d:AbstractDeclarator?> ")" <e: UnaryTerm> => {
-        let ty = if let Some(d) = d { d.process(t) } else { t };
-        Expr::new(DefaultExpr::Cast(ty, Box::new(e)))
-    },
-    "+" <UnaryTerm> => <>,
-    <o:UnOp> <t: UnaryTerm> => Expr::new(DefaultExpr::Unary(o, Box::new(t))),
+    "+" <Cast> => <>,
+    <o:UnOp> <t: Cast> => Expr::new(DefaultExpr::Unary(o, Box::new(t))),
+    "sizeof" <UnaryTerm> => Expr::new(DefaultExpr::SizeOf(Box::new(<>))),
+    "sizeof" "(" <TypeName> ")" => Expr::new(DefaultExpr::SizeOfT(<>)),
     PostfixTerm => <>,
 };
+
+TypeName: Type = {
+    <t:Type> <d:AbstractDeclarator?> => if let Some(d) = d { d.process(t) } else { t }
+};
+
+Cast: Expr = {
+    "(" <ty:TypeName> ")" <e: UnaryTerm> => {
+        Expr::new(DefaultExpr::Cast(ty, Box::new(e)))
+    },
+    UnaryTerm,
+}
 
 PostfixTerm: Expr = {
     PrimaryTerm => <>,

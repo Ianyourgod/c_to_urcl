@@ -1,23 +1,28 @@
 use std::collections::{HashSet, VecDeque};
 
-use crate::urcl_gen::asm;
+use crate::urcl_gen::{asm, cpu_definitions::CPUDefinition};
 use crate::mir::mir_def;
 use crate::semantic_analysis::type_check::{IdentifierAttrs, SymbolTable};
 
-pub struct ASMGenerator<'a> {
+pub struct ASMGenerator<'a, CPU> 
+where
+    CPU: CPUDefinition
+{
     pub symbol_table: &'a SymbolTable,
+    cpu: &'a CPU
 }
 
-impl<'a> ASMGenerator<'a> {
-    pub fn new(symbol_table: &'a SymbolTable) -> Self {
+impl<'a, T: CPUDefinition> ASMGenerator<'a, T> {
+    pub fn new(symbol_table: &'a SymbolTable, cpu: &'a T) -> Self {
         Self {
-            symbol_table
+            symbol_table,
+            cpu
         }
     }
 
-    pub fn mir_to_asm(&self, mir: mir_def::Program) -> asm::Program<asm::PVal> {
+    pub fn mir_to_asm(&self, mir: mir_def::Program) -> asm::Program<'_, asm::PVal, T> {
         asm::Program {
-            header_info: asm::HeaderInfo::generic_16bit(),
+            cpu: self.cpu,
             top_level_items: mir.top_level.into_iter().map(|tl| {
                 match tl {
                     mir_def::TopLevel::Fn(func) => {
@@ -26,7 +31,7 @@ impl<'a> ASMGenerator<'a> {
                         let params_len = func.params.len();
                         for (param, offset) in func.params.into_iter().zip(0..params_len) {
                             instructions.push(asm::Instr::LLod {
-                                src: asm::Reg::bp_pval(),
+                                src: asm::Reg::bp_pval(self.cpu),
                                 offset: asm::PVal::Imm((offset * 2 + 2) as i32),
                                 dst: asm::PVal::Var(param),
                             });
@@ -209,7 +214,7 @@ impl<'a> ASMGenerator<'a> {
 
                 instructions.push(asm::Instr::Call(name));
 
-                instructions.push(asm::Instr::Mov { src: asm::Reg::pval(1), dst: asm::PVal::Var(dst) });
+                dst.map(|dst|instructions.push(asm::Instr::Mov { src: asm::Reg::pval(1), dst: asm::PVal::Var(dst) }));
             },
             mir_def::Instruction::Load { src_ptr, dst } => {
                 // TODO! use the normal lod instr for this
@@ -268,9 +273,11 @@ impl<'a> ASMGenerator<'a> {
     fn term_to_asm(&self, term: mir_def::Terminator, instructions: &mut Vec<asm::Instr<asm::PVal>>) {
         match term {
             mir_def::Terminator::Return(val) => {
-                let val = self.val_to_asm(val, instructions);
+                val.map(|val| {
+                    let val = self.val_to_asm(val, instructions);
 
-                instructions.push(asm::Instr::Mov { src: val, dst: asm::Reg::pval(1) });
+                    instructions.push(asm::Instr::Mov { src: val, dst: asm::Reg::pval(1) });
+                });
                 instructions.push(asm::Instr::Ret);
             },
             mir_def::Terminator::Jump { target } => {

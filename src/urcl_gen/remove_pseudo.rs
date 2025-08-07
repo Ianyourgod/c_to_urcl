@@ -1,11 +1,11 @@
 use std::collections::HashMap;
 
 use crate::semantic_analysis::type_check::{IdentifierAttrs, SymbolTable};
-use crate::urcl_gen::asm;
+use crate::urcl_gen::{asm, cpu_definitions::CPUDefinition};
 use crate::mir::{mir_def::Ident, mir_gen::get_size_of_type};
 
-pub fn fix_pvals(program: asm::Program<asm::PVal>, symbol_table: &SymbolTable) -> asm::Program<asm::Val> {
-    let mut r = RemovePseudo::new(symbol_table);
+pub fn fix_pvals<'a, T:CPUDefinition>(program: asm::Program<'a, asm::PVal, T>, symbol_table: &'a SymbolTable, cpu: &'a T) -> asm::Program<'a, asm::Val, T> {
+    let r = RemovePseudo::new(symbol_table, cpu);
 
     r.generate_program(program)
 }
@@ -16,25 +16,26 @@ enum VarPosition {
     Stack(u32),
 }
 
-#[derive(Debug, Clone)]
-struct RemovePseudo<'a> {
+struct RemovePseudo<'a, T: CPUDefinition> {
     vars: HashMap<Ident, VarPosition>,
     stack_offset: u32,
-    symbol_table: &'a SymbolTable
+    symbol_table: &'a SymbolTable,
+    cpu: &'a T
 }
 
-impl<'a> RemovePseudo<'a> {
-    pub fn new(symbol_table: &'a SymbolTable) -> Self {
+impl<'a, T: CPUDefinition> RemovePseudo<'a, T> {
+    pub fn new(symbol_table: &'a SymbolTable, cpu: &'a T) -> Self {
         Self {
             vars: HashMap::new(),
             stack_offset: 0,
             symbol_table,
+            cpu,
         }
     }
 
-    pub fn generate_program(&mut self, program: asm::Program<asm::PVal>) -> asm::Program<asm::Val> {
+    pub fn generate_program(mut self, program: asm::Program<asm::PVal, T>) -> asm::Program<asm::Val, T> {
         asm::Program {
-            header_info: program.header_info,
+            cpu: program.cpu,
             top_level_items: program.top_level_items.into_iter().map(|f| {
                 match f {
                     asm::TopLevel::Fn(f) => asm::TopLevel::Fn(self.generate_function(f)),
@@ -50,8 +51,8 @@ impl<'a> RemovePseudo<'a> {
         
         let mut instructions = Vec::with_capacity(function.instructions.len() + 5);
 
-        instructions.push(asm::Instr::Push(asm::Reg::bp_val()));
-        instructions.push(asm::Instr::Mov { src: asm::Reg::sp_val(), dst: asm::Reg::bp_val() });
+        instructions.push(asm::Instr::Push(asm::Reg::bp_val(self.cpu)));
+        instructions.push(asm::Instr::Mov { src: asm::Reg::sp_val(), dst: asm::Reg::bp_val(self.cpu) });
         // placeholder
         instructions.push(asm::Instr::Binary { binop: asm::Binop::Sub, src1: asm::Reg::sp_val(), src2: asm::Val::Imm(0), dst: asm::Reg::sp_val() });
 
@@ -160,7 +161,7 @@ impl<'a> RemovePseudo<'a> {
                             IdentifierAttrs::Local => {
                                 let v = if let VarPosition::Stack(s) = self.get_var_pos(v) { s } else { unreachable!() };
 
-                                instructions.push(asm::Instr::Binary { binop: asm::Binop::Sub, src1: asm::Reg::bp_val(), src2: asm::Val::Imm(v as i32), dst });
+                                instructions.push(asm::Instr::Binary { binop: asm::Binop::Sub, src1: asm::Reg::bp_val(self.cpu), src2: asm::Val::Imm(v as i32), dst });
                             },
                             IdentifierAttrs::Constant { .. } |
                             IdentifierAttrs::Static { .. } => {
@@ -176,8 +177,8 @@ impl<'a> RemovePseudo<'a> {
 
             asm::Instr::Call(n) => instructions.push(asm::Instr::Call(n)),
             asm::Instr::Ret => {
-                instructions.push(asm::Instr::Mov { src: asm::Reg::bp_val(), dst: asm::Reg::sp_val() });
-                instructions.push(asm::Instr::Pop(asm::Reg::bp_val()));
+                instructions.push(asm::Instr::Mov { src: asm::Reg::bp_val(self.cpu), dst: asm::Reg::sp_val() });
+                instructions.push(asm::Instr::Pop(asm::Reg::bp_val(self.cpu)));
                 instructions.push(asm::Instr::Ret)
             },
             asm::Instr::Jmp { label } => instructions.push(asm::Instr::Jmp { label }),
@@ -206,7 +207,7 @@ impl<'a> RemovePseudo<'a> {
 
                 match v {
                     VarPosition::Stack(n) => {
-                        instructions.push(asm::Instr::LLod { src: asm::Reg::bp_val(), dst: asm::Reg::val(load_to), offset: asm::Val::Imm(-(*n as i32)) });
+                        instructions.push(asm::Instr::LLod { src: asm::Reg::bp_val(self.cpu), dst: asm::Reg::val(load_to), offset: asm::Val::Imm(-(*n as i32)) });
                     },
                     VarPosition::Label(l) => {
                         // TODO! use normal lod instr
@@ -262,7 +263,7 @@ impl<'a> RemovePseudo<'a> {
             VarPosition::Stack(n) => {
                 instructions.push(asm::Instr::LStr {
                     src: asm::Reg::val(written_to),
-                    dst: asm::Reg::bp_val(),
+                    dst: asm::Reg::bp_val(self.cpu),
                     offset: asm::Val::Imm(-(n as i32))
                 });
             }

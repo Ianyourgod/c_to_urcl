@@ -171,7 +171,7 @@ impl Analyzer {
     fn analyze_statement(&mut self, statement: ast::Statement<ast::Expr>, context: &mut Context) -> ast::Statement<ast::Expr> {
         match statement {
             ast::Statement::Return(expr) => {
-                ast::Statement::Return(self.analyze_expr(expr, context))
+                ast::Statement::Return(expr.map(|expr|self.analyze_expr(expr, context)))
             },
             ast::Statement::Expr(expr) => {
                 ast::Statement::Expr(self.analyze_expr(expr, context))
@@ -281,7 +281,13 @@ impl Analyzer {
 
                 ast::DefaultExpr::Cast(ty, Box::new(inner))
             }
+            ast::DefaultExpr::SizeOf(box inner) => {
+                let inner = self.analyze_expr(inner, context);
 
+                ast::DefaultExpr::SizeOf(Box::new(inner))
+            }
+
+            ast::DefaultExpr::SizeOfT(_)   |
             ast::DefaultExpr::String(_)    |
             ast::DefaultExpr::Constant(_) => expr.0,
         })

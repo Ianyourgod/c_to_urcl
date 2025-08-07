@@ -116,7 +116,7 @@ pub enum Instruction {
     FunctionCall {
         name: Ident,
         args: Vec<Val>,
-        dst: Ident,
+        dst: Option<Ident>,
     },
     GetAddress {
         src: Ident,
@@ -145,7 +145,7 @@ pub enum Instruction {
 
 #[derive(Debug, Clone)]
 pub enum Terminator {
-    Return(Val),
+    Return(Option<Val>),
     Jump {
         target: GenericBlockID,
     },

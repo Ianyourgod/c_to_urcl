@@ -4,17 +4,19 @@ use std::fmt::Display;
 use crate::Ident;
 
 pub use crate::mir::mir_def::{GenericBlockID, StaticInit};
+use crate::urcl_gen::cpu_definitions::{HeaderInfo, CPUDefinition};
 
 #[derive(Debug, Clone)]
-pub struct Program<V>
+pub struct Program<'a, V, CPU>
 where 
-    V: Display
+    V: Display,
+    CPU: CPUDefinition
 {
-    pub header_info: HeaderInfo,
+    pub cpu: &'a CPU,
     pub top_level_items: Vec<TopLevel<V>>,
 }
 
-impl<V> Display for Program<V>
+impl<V, CPU: CPUDefinition> Display for Program<'_, V, CPU>
 where
     V: Display
 {
@@ -28,7 +30,7 @@ OUT %NUMB $2
 HLT
 ";
 
-        let header_info = self.header_info;
+        let header_info = self.cpu.get_header_info();
 
         let mut out = format!(
             "{header_info}\n\nMOV $2 SP\nCAL .main\n{print_num}"
@@ -367,10 +369,10 @@ impl Reg {
     pub fn sp_val() -> Val { Val::Reg(Self::sp()) }
     pub fn sp_pval() -> PVal { PVal::Reg(Self::sp()) }
 
-    pub fn bp() -> Self { Self::Normal(2) }
+    pub fn bp<T:CPUDefinition>(cpu:&T) -> Self { Self::Normal(cpu.get_base_ptr()) }
 
-    pub fn bp_val() -> Val { Val::Reg(Self::bp()) }
-    pub fn bp_pval() -> PVal { PVal::Reg(Self::bp()) }
+    pub fn bp_val<T:CPUDefinition>(cpu:&T) -> Val { Val::Reg(Self::bp(cpu)) }
+    pub fn bp_pval<T:CPUDefinition>(cpu:&T) -> PVal { PVal::Reg(Self::bp(cpu)) }
 }
 
 #[derive(Debug, Clone)]
@@ -389,62 +391,6 @@ impl Display for PVal {
             PVal::Var(s) => s.as_str(),
             PVal::Label(l) => &(".".to_string() + l.as_str()),
         };
-
-        f.write_str(&s)
-    }
-}
-
-#[derive(Debug, Clone, Copy)]
-pub struct HeaderInfo {
-    pub bits: u8,
-    pub min_reg: u8,
-    pub min_heap: u32,
-    pub min_stack: u32,
-    pub von_neumann: bool,
-}
-
-impl HeaderInfo {
-    pub fn default() -> Self {
-        Self {
-            bits: 8,
-            min_reg: 8,
-            min_heap: 16,
-            min_stack: 8,
-            von_neumann: false
-        }
-    }
-
-    pub fn iris() -> Self {
-        Self {
-            bits: 16,
-            min_reg: 26,
-            min_heap: 4096,
-            min_stack: 16, // idk the stack size of iris... TODO! find the actual stack size
-            von_neumann: false // idk if iris can do von neumann but we're just gonna put this as false for now
-        }
-    }
-
-    pub fn generic_16bit() -> Self {
-        Self {
-            bits: 16,
-            min_reg: 8,
-            min_heap: 256, // since *our* stack is on the *heap*, we need some stuff
-            min_stack: 16, // ummmm we're just gonna say 16
-            von_neumann: false,
-        }
-    }
-}
-
-impl Display for HeaderInfo {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        let s = format!(
-            "BITS == {}\nMINREG {}\nMINHEAP {}\nRUN {}\nMINSTACK {}",
-            self.bits,
-            self.min_reg,
-            self.min_heap,
-            if self.von_neumann { "RAM" } else { "ROM" },
-            self.min_stack
-        );
 
         f.write_str(&s)
     }

@@ -156,6 +156,9 @@ impl TypeChecker {
             }).collect(),
             ret_ty: Box::new(function.ret_ty.clone())
         };
+
+        Self::validate_type_specifier(&fn_type);
+
         let has_body = function.block.is_some();
         let mut global = function.storage_class != Some(ast::StorageClass::Static);
 
@@ -206,6 +209,8 @@ impl TypeChecker {
 
     // we can return nothing as tacky uses the symbol table to generate static vars
     fn typecheck_file_scope_var_decl(&mut self, var_decl: ast::VarDeclaration<Expr>) {
+        Self::validate_type_specifier(&var_decl.ty);
+
         let default_init = if var_decl.storage_class == Some(ast::StorageClass::Extern) {
             InitialValue::NoInit
         } else {
@@ -349,11 +354,14 @@ impl TypeChecker {
             ast::Type::Char => vec![StaticInit::CharInit(0)],
             ast::Type::UChar => vec![StaticInit::UCharInit(0)],
 
+            ast::Type::Void => unreachable!(),
             ast::Type::Fn { .. } => unreachable!()
         }
     }
 
     fn typecheck_var_decl(&mut self, var_decl: ast::VarDeclaration<Expr>) -> ast::VarDeclaration<TypedExpr> {
+        Self::validate_type_specifier(&var_decl.ty);
+        
         if var_decl.storage_class == Some(ast::StorageClass::Extern) {
             if var_decl.expr.is_some() {
                 panic!("Cannot have init on local extern variable declaration");
@@ -438,6 +446,7 @@ impl TypeChecker {
             Type::Char => ast::Initializer::Single(TypedExpr::new(DefaultExpr::Constant(ast::Const::Char(0)), ast::Type::Char)),
             Type::UChar => ast::Initializer::Single(TypedExpr::new(DefaultExpr::Constant(ast::Const::UChar(0)), ast::Type::UChar)),
 
+            Type::Void => panic!("Cannot zero init void"),
             Type::Fn { .. } => panic!("Cannot zero init a function"),
         }
     }
@@ -471,9 +480,20 @@ impl TypeChecker {
     fn typecheck_statement(&mut self, stmt: Statement<Expr>) -> Statement<TypedExpr> {
         match stmt {
             Statement::Return(expr) => {
-                let e = self.typecheck_and_convert(expr);
+                let should_ret = self.current_ret_ty != Type::Void;
 
-                let expr = self.convert_by_assignment(e, &self.current_ret_ty);
+                if should_ret != expr.is_some() {
+                    if should_ret {
+                        panic!("Must include expression in return statement");
+                    } else {
+                        panic!("Cannot return value in void function");
+                    }
+                }
+
+                let expr = expr.map(|expr|{
+                    let expr = self.typecheck_and_convert(expr);
+                    self.convert_by_assignment(expr, &self.current_ret_ty)
+                });
 
                 Statement::Return(expr)
             },
@@ -583,8 +603,10 @@ impl TypeChecker {
 
                 let common_type = if left.ty.is_pointer_type() || right.ty.is_pointer_type() {
                     self.get_common_pointer_type(&left, &right).clone()
-                } else {
+                } else if left.ty.is_arithmetic() && right.ty.is_arithmetic() {
                     left.ty.get_common_type(&right.ty)
+                } else {
+                    panic!("Invalid operands to ==/!=");
                 };
 
                 let left = self.convert_to(left, &common_type);
@@ -605,16 +627,16 @@ impl TypeChecker {
                     let ty = Type::Int;
 
                     TypedExpr::new(DefaultExpr::Binary(ast::BinOp::Add, Box::new((left, right))), ty)
-                } else if left.ty.is_pointer_type() && right.ty.is_arithmetic() {
+                } else if left.ty.is_pointer_to_complete() && right.ty.is_arithmetic() {
                     let right = self.convert_to(right, &ast::Type::Int);
                     let ty = left.ty.clone();
                     TypedExpr::new(DefaultExpr::Binary(ast::BinOp::Add, Box::new((left, right))), ty)
-                } else if right.ty.is_pointer_type() && left.ty.is_arithmetic() {
+                } else if right.ty.is_pointer_to_complete() && left.ty.is_arithmetic() {
                     let left = self.convert_to(left, &ast::Type::Int);
                     let ty = right.ty.clone();
                     TypedExpr::new(DefaultExpr::Binary(ast::BinOp::Add, Box::new((left, right))), ty)
                 } else {
-                    panic!()
+                    panic!("Invalid operands in add")
                 }
             },
             DefaultExpr::Binary(ast::BinOp::Sub, box (left, right)) => {
@@ -630,11 +652,11 @@ impl TypeChecker {
                     let ty = Type::Int;
 
                     TypedExpr::new(DefaultExpr::Binary(ast::BinOp::Sub, Box::new((left, right))), ty)
-                } else if left.ty.is_pointer_type() && right.ty.is_arithmetic() {
+                } else if left.ty.is_pointer_to_complete() && right.ty.is_arithmetic() {
                     let right = self.convert_to(right, &ast::Type::Int);
                     let ty = left.ty.clone();
                     TypedExpr::new(DefaultExpr::Binary(ast::BinOp::Add, Box::new((left, right))), ty)
-                } else if left.ty.is_pointer_type() && left.ty == right.ty {
+                } else if left.ty.is_pointer_to_complete() && left.ty == right.ty {
                     let ty = left.ty.clone();
                     TypedExpr::new(DefaultExpr::Binary(ast::BinOp::Add, Box::new((left, right))), ty)
                 } else {
@@ -644,6 +666,10 @@ impl TypeChecker {
             DefaultExpr::Binary(op, box (left, right)) => {
                 let left = self.typecheck_and_convert(left);
                 let right = self.typecheck_and_convert(right);
+
+                if !left.ty.is_complete() || right.ty.is_complete() {
+                    panic!("Cannot do arithmatic to incomplete types");
+                }
 
                 if op == ast::BinOp::And || op == ast::BinOp::Or {
                     return TypedExpr::new(DefaultExpr::Binary(op, Box::new((left, right))), Type::Int);
@@ -661,12 +687,20 @@ impl TypeChecker {
             DefaultExpr::Unary(ast::UnOp::Not, box inner) => {
                 let inner = self.typecheck_and_convert(inner);
 
+                if !inner.ty.is_scalar() {
+                    panic!("Cannot apply not to non-scalar type");
+                }
+
                 let ty = Type::Int;
 
                 TypedExpr::new(DefaultExpr::Unary(ast::UnOp::Not, Box::new(inner)), ty)
             },
             DefaultExpr::Unary(ast::UnOp::Dereference, box inner) => {
                 let inner = self.typecheck_and_convert(inner);
+
+                if inner.ty.is_void_ptr() {
+                    panic!("Cannot dereference void pointer");
+                }
 
                 match &inner.ty {
                     Type::Pointer(ty) => {
@@ -710,10 +744,18 @@ impl TypeChecker {
                 let then_expr = self.typecheck_and_convert(then_expr);
                 let else_expr = self.typecheck_and_convert(else_expr);
 
-                let common_type = if then_expr.ty.is_pointer_type() || else_expr.ty.is_pointer_type() {
+                if !cond.ty.is_scalar() {
+                    panic!("Ternary condition must be scalar");
+                }
+
+                let common_type = if then_expr.ty.is_void() && else_expr.ty.is_void() {
+                    Type::Void
+                } else if then_expr.ty.is_pointer_type() || else_expr.ty.is_pointer_type() {
                     self.get_common_pointer_type(&then_expr, &else_expr).clone()
-                } else {
+                } else if then_expr.ty.is_arithmetic() && else_expr.ty.is_arithmetic() {
                     then_expr.ty.get_common_type(&else_expr.ty)
+                } else {
+                    panic!("Invalid ternary branch types");
                 };
 
                 let then_expr = self.convert_to(then_expr, &common_type);
@@ -722,21 +764,34 @@ impl TypeChecker {
                 TypedExpr::new(DefaultExpr::Ternary(Box::new((cond, then_expr, else_expr))), common_type)
             },
             DefaultExpr::Cast(t, box inner) => {
+                let is_void = t.is_void();
+                let is_scalar = t.is_scalar();
+
                 let inner = self.typecheck_and_convert(inner);
 
-                if matches!(t, Type::Array(_, _)) {
-                    panic!("Cannot cast to an array type");
+                let inner_is_scalar = inner.ty.is_scalar();
+
+                let cast = TypedExpr::new(DefaultExpr::Cast(t.clone(), Box::new(inner)), t);
+
+                if is_void {
+                    return cast;
+                }
+                if !is_scalar {
+                    panic!("Cannot cast to non-scalar type");
+                }
+                if !inner_is_scalar {
+                    panic!("Cannot cast non-scalar expr to scalar type");
                 }
 
-                TypedExpr::new(DefaultExpr::Cast(t.clone(), Box::new(inner)), t)
+                cast
             },
             DefaultExpr::Subscript(box (obj, idx)) => {
                 let obj = self.typecheck_and_convert(obj);
                 let idx = self.typecheck_and_convert(idx);
 
-                let (refed_ty, obj, idx) = if let Some(ty) = obj.ty.refed_ptr_ty() && idx.ty.is_arithmetic() {
+                let (refed_ty, obj, idx) = if let Some(ty) = obj.ty.refed_ptr_ty() && obj.ty.is_pointer_to_complete() && idx.ty.is_arithmetic() {
                     (ty.clone(), obj, self.convert_to(idx, &Type::Int))
-                } else if obj.ty.is_arithmetic() && let Some(ty) = idx.ty.refed_ptr_ty() {
+                } else if obj.ty.is_arithmetic() && idx.ty.is_pointer_to_complete() && let Some(ty) = idx.ty.refed_ptr_ty() {
                     (ty.clone(), self.convert_to(obj, &Type::Int), idx)
                 } else {
                     panic!("Subscript must have ptr and int operands");
@@ -748,7 +803,47 @@ impl TypeChecker {
             DefaultExpr::String(s) => {
                 let len = s.len() + 1;
                 TypedExpr::new(DefaultExpr::String(s), Type::Array(Box::new(Type::Char), len as u16)) 
+            },
+
+            DefaultExpr::SizeOfT(ty) => {
+                Self::validate_type_specifier(&ty);
+
+                if !ty.is_complete() {
+                    panic!("Cannot get the size of incomplete type");
+                }
+
+                TypedExpr::new(DefaultExpr::SizeOfT(ty), Type::UInt)
+            },
+            DefaultExpr::SizeOf(inner) => {
+                let inner = self.typecheck_expr(*inner);
+
+                if !inner.ty.is_complete() {
+                    panic!("Cannot get the size of incomplete type");
+                }
+
+                TypedExpr::new(DefaultExpr::SizeOf(Box::new(inner)), Type::UInt)
             }
+        }
+    }
+
+    fn validate_type_specifier(ty: &Type) {
+        match ty {
+            Type::Array(inner, _) => {
+                if !inner.is_complete() {
+                    panic!("Cannot make an array of an incomplete type");
+                }
+                Self::validate_type_specifier(&inner);
+            },
+            Type::Pointer(inner) => {
+                Self::validate_type_specifier(&inner);
+            },
+            Type::Fn { params, ret_ty } => {
+                for param in params {
+                    Self::validate_type_specifier(param);
+                }
+                Self::validate_type_specifier(&ret_ty);
+            },
+            _ => ()
         }
     }
 
@@ -790,9 +885,14 @@ impl TypeChecker {
         if self.is_null_pointer_constant(e1) {
             return &e2.ty;
         }
-
         if self.is_null_pointer_constant(e2) {
             return &e1.ty;
+        }
+        if e1.ty.is_void_ptr() && e2.ty.is_pointer_type() {
+            return &e1.ty;
+        }
+        if e2.ty.is_void_ptr() && e1.ty.is_pointer_type() {
+            return &e2.ty;
         }
 
         panic!("Expressions have incompatible types");
@@ -804,7 +904,9 @@ impl TypeChecker {
         }
 
         if (expr.ty.is_arithmetic() && ty.is_arithmetic()) ||
-           (self.is_null_pointer_constant(&expr) && ty.is_pointer_type())
+           (self.is_null_pointer_constant(&expr) && ty.is_pointer_type()) ||
+           (ty.is_void_ptr() && expr.ty.is_pointer_type()) ||
+           (ty.is_pointer_type() && expr.ty.is_void_ptr())
         {
             return self.convert_to(expr, ty);
         }

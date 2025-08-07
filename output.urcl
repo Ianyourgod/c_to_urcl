@@ -1,6 +1,6 @@
 BITS == 16
-MINREG 8
-MINHEAP 256
+MINREG 26
+MINHEAP 4096
 RUN ROM
 MINSTACK 16
 
@@ -12,23 +12,12 @@ OUT %TEXT 45
 ABS $2 $1
 OUT %NUMB $2
 HLT
-.print_str
-	PSH $2
-	MOV $2 SP
-	SUB SP SP 1
-	LLOD $7 $2 2
-	LSTR $2 -1 $7
-	.lbl.gen.1.
-	MOV $1 0
-	MOV SP $2
-	POP $2
-	RET
 .main
 	PSH $2
 	MOV $2 SP
 	SUB SP SP 3
-	.lbl.gen.4.
-	MOV $7 ..str.mir.4.
+	.lbl.gen.2.
+	MOV $7 ..str.mir.2.
 	LSTR $2 -1 $7
 	LLOD $7 $2 -1
 	MOV $7 $7
@@ -43,5 +32,5 @@ HLT
 	MOV SP $2
 	POP $2
 	RET
-..str.mir.4.
+..str.mir.2.
 	DW ["hiiii!!!", 0]

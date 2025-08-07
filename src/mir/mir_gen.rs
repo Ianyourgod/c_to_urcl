@@ -45,7 +45,9 @@ impl<'s> Generator<'s> {
                             name: name.clone(),
                             global,
                             init: match entry.ty {
+                                mir_def::Type::Void       |
                                 mir_def::Type::Fn { .. } => unreachable!(),
+
                                 mir_def::Type::Int => vec![mir_def::StaticInit::IntInit(0)],
                                 mir_def::Type::UInt => vec![mir_def::StaticInit::UIntInit(0)],
                                 mir_def::Type::Pointer(_) => vec![mir_def::StaticInit::UIntInit(0)],
@@ -110,7 +112,8 @@ pub fn get_size_of_type(ty: &ast::Type) -> u16 {
             inner_size * len
         },
 
-        &ast::Type::Fn { .. } => unreachable!()
+        &ast::Type::Fn { .. } => unreachable!(),
+        &ast::Type::Void => unreachable!()
     }
 }
 
@@ -144,7 +147,7 @@ impl<'l> FunctionGenerator<'l> {
         mir_def::GenericBlock {
             id,
             instructions: Vec::new(),
-            terminator: mir_def::Terminator::Return(mir_def::Val::Num(mir_def::Const::Int(0)))
+            terminator: mir_def::Terminator::Return(Some(mir_def::Val::Num(mir_def::Const::Int(0))))
         }
     }
 
@@ -252,7 +255,7 @@ impl<'l> FunctionGenerator<'l> {
     fn generate_statement(&mut self, stmt: ast::Statement<TypedExpr>, symbol_table: &mut SymbolTable) {
         match stmt {
             ast::Statement::Return(expr) => {
-                self.current_block.terminator = mir_def::Terminator::Return(self.generate_expr_and_convert(expr, symbol_table));
+                self.current_block.terminator = mir_def::Terminator::Return(expr.map(|expr|self.generate_expr_and_convert(expr, symbol_table)));
                 self.new_block();
             },
             ast::Statement::Expr(expr) => {
@@ -803,6 +806,8 @@ impl<'l> FunctionGenerator<'l> {
                 ExprResult::Plain(mir_def::Val::Var(tmp_name))
             },
             ast::DefaultExpr::Ternary(box (cond, then_expr, else_expr)) => {
+                let is_void = then_expr.ty.is_void();
+                
                 let cond = self.generate_expr_and_convert(cond, symbol_table);
 
                 let ret = self.gen_tmp_var(ty, symbol_table);
@@ -820,6 +825,22 @@ impl<'l> FunctionGenerator<'l> {
                 };
 
                 self.new_block_w_id(true_label);
+
+                if is_void {
+                    self.generate_expr_and_convert(then_expr, symbol_table);
+                    
+                    self.current_block.terminator = mir_def::Terminator::Jump { target: end_label };
+
+                    self.new_block_w_id(false_label);
+
+                    self.generate_expr_and_convert(else_expr, symbol_table);
+
+                    self.current_block.terminator = mir_def::Terminator::Jump { target: end_label };
+
+                    self.new_block_w_id(end_label);
+
+                    return ExprResult::Plain(mir_def::Val::Var(Rc::new("I_SHOULD_NOT_BE_USED!!!!!!!".into())))
+                }
 
                 let v = self.generate_expr_and_convert(then_expr, symbol_table);
                 self.current_block.instructions.push(mir_def::Instruction::Copy {
@@ -844,13 +865,20 @@ impl<'l> FunctionGenerator<'l> {
                 ExprResult::Plain(mir_def::Val::Var(ret))
             },
             ast::DefaultExpr::FunctionCall(name, exprs) => {
+                let void_ty = if let ast::Type::Fn { ref ret_ty,.. } = symbol_table.get(&name).unwrap().ty { ret_ty.is_void() } else { unreachable!() };
+
                 let args = exprs.into_iter().map(|e|self.generate_expr_and_convert(e, symbol_table)).collect();
 
                 let dst = self.gen_tmp_var(ty, symbol_table);
 
-                self.current_block.instructions.push(mir_def::Instruction::FunctionCall { name, args, dst: dst.clone() });
+                self.current_block.instructions.push(mir_def::Instruction::FunctionCall { name, args, dst: if void_ty { None } else { Some(dst.clone()) } });
 
                 ExprResult::Plain(mir_def::Val::Var(dst))
+            },
+            ast::DefaultExpr::Cast(ast::Type::Void, expr) => {
+                let expr = self.generate_expr_and_convert(*expr, symbol_table);
+
+                ExprResult::Plain(expr)
             },
             ast::DefaultExpr::Cast(t, expr) => {
                 let expr_ty = &expr.ty;
@@ -897,6 +925,13 @@ impl<'l> FunctionGenerator<'l> {
                 ));
                 ExprResult::Plain(mir_def::Val::Var(str_name))
             },
+            ast::DefaultExpr::SizeOfT(ty) => {
+                ExprResult::Plain(mir_def::Val::Num(mir_def::Const::UInt(get_size_of_type(&ty))))
+            },
+            ast::DefaultExpr::SizeOf(inner) => {
+                let ty = inner.ty;
+                ExprResult::Plain(mir_def::Val::Num(mir_def::Const::UInt(get_size_of_type(&ty))))
+            }
         }
     }
 }
