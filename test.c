@@ -1,14 +1,21 @@
-union Sigma {
-    int a;
-    int* b;
+struct Node {
+    int val;
+    struct Node *next;
 };
 
 int main(void) {
-    union Sigma sig;
+    struct Node end = { .val=8, .next=0 };
+    struct Node mid2 = { .val=6, .next=&end };
+    struct Node mid1 = { .val=4, .next=&mid2 };
+    struct Node start = { .val=2, .next=&mid1 };
 
-    int b = 3;
+    int sum = 0;
+    struct Node* next = &start;
 
-    sig.b = &b;
+    while (next) {
+        sum += next->val;
+        next = next->next;
+    }
 
-    return sig.a;
+    return sum;
 }

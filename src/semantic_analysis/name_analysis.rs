@@ -198,7 +198,8 @@ impl Analyzer {
     fn analyze_init(&mut self, init: ast::Initializer<ast::Expr>, context: &Context) -> ast::Initializer<ast::Expr> {
         match init {
             ast::Initializer::Single(e) => ast::Initializer::Single(self.analyze_expr(e, context)),
-            ast::Initializer::Compound(c) => ast::Initializer::Compound(c.into_iter().map(|i|self.analyze_init(i, context)).collect())
+            ast::Initializer::Compound(c) => ast::Initializer::Compound(c.into_iter().map(|i|self.analyze_init(i, context)).collect()),
+            ast::Initializer::Fields(f) => ast::Initializer::Fields(f.into_iter().map(|(n,i)|(n,self.analyze_init(i, context))).collect()),
         }
     }
 

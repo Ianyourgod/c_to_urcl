@@ -406,7 +406,28 @@ impl TypeChecker {
 
     fn init_to_static(&mut self, init: ast::Initializer<Expr>, ty: &Type) -> Vec<StaticInit> {
         match (init, ty) {
-            (ast::Initializer::Compound(inits), ast::Type::Union(name)) |
+            (ast::Initializer::Compound(inits), ast::Type::Union(name)) => {
+                let decl = self.type_table.entries.get(name).unwrap();
+
+                if inits.len() > decl.members.len() {
+                    panic!("Too many initializers in struct init");
+                }
+
+                let mut current_size = 0;
+                let mut static_inits = Vec::with_capacity(decl.size as usize);
+                let decl_size = decl.size;
+
+                for (init, member) in inits.into_iter().zip(decl.members.values().cloned().collect::<Vec<_>>().into_iter()) {
+                    static_inits.append(&mut self.init_to_static(init, &member.ty));
+                    current_size = current_size.max(get_size_of_type(&member.ty, &self.type_table));
+                }
+
+                for _ in current_size..decl_size {
+                    static_inits.push(StaticInit::ZeroInit);
+                }
+
+                static_inits
+            },
             (ast::Initializer::Compound(inits), ast::Type::Struct(name)) => {
                 let decl = self.type_table.entries.get(name).unwrap();
 
@@ -425,6 +446,82 @@ impl TypeChecker {
 
                 for _ in current_size..decl_size {
                     static_inits.push(StaticInit::ZeroInit);
+                }
+
+                static_inits
+            },
+            (ast::Initializer::Fields(mut inits), ast::Type::Union(name)) => {
+                let decl = self.type_table.entries.get(name).unwrap().clone();
+
+                if inits.len() > decl.members.len() {
+                    panic!("Too many initializers in struct init");
+                }
+
+                for (idx, init) in inits.iter().enumerate() {
+                    if !decl.members.contains_key(&init.0) {
+                        panic!("Unrecognized member in struct/union field declaration");
+                    }
+
+                    for (inner_idx, inner_init) in inits.iter().enumerate() {
+                        if idx == inner_idx {
+                            continue;
+                        }
+
+                        if init.0 == inner_init.0 {
+                            panic!("Cannot declare the same member twice");
+                        }
+                    }
+                }
+
+                let mut static_inits = Vec::with_capacity(decl.size as usize);
+                let decl_size = decl.size;
+
+                
+                let (name, init) = inits.pop().unwrap();
+                
+                let member = decl.members.get(&name).unwrap();
+                static_inits.append(&mut self.init_to_static(init, &member.ty));
+                let current_size = get_size_of_type(&member.ty, &self.type_table);
+
+                for _ in current_size..decl_size {
+                    static_inits.push(StaticInit::ZeroInit);
+                }
+
+                static_inits
+            },
+            (ast::Initializer::Fields(inits), ast::Type::Struct(name)) => {
+                let decl = self.type_table.entries.get(name).unwrap().clone();
+
+                if inits.len() > decl.members.len() {
+                    panic!("Too many initializers in struct init");
+                }
+
+                for (idx, init) in inits.iter().enumerate() {
+                    if !decl.members.contains_key(&init.0) {
+                        panic!("Unrecognized member in struct/union field declaration");
+                    }
+
+                    for (inner_idx, inner_init) in inits.iter().enumerate() {
+                        if idx == inner_idx {
+                            continue;
+                        }
+
+                        if init.0 == inner_init.0 {
+                            panic!("Cannot declare the same member twice");
+                        }
+                    }
+                }
+
+                let mut static_inits = vec![StaticInit::ZeroInit; decl.size as usize];
+
+                for (name, init) in inits.into_iter() {
+                    let member = decl.members.get(&name).unwrap();
+
+                    let inits = self.init_to_static(init, &member.ty);
+                    let offsets = member.offset..(inits.len() as u16 + member.offset);
+                    for (init, offset) in inits.into_iter().zip(offsets) {
+                        static_inits[offset as usize] = init;
+                    }
                 }
 
                 static_inits
@@ -590,6 +687,41 @@ impl TypeChecker {
 
     fn typecheck_init(&mut self, init: ast::Initializer<Expr>, target_type: Type) -> ast::Initializer<TypedExpr> {
         match (&target_type, init) {
+            (Type::Struct(tag), ast::Initializer::Fields(fields)) => {
+                // turn it into compound
+                let decl = self.type_table.entries.get(tag).unwrap().clone();
+
+                if fields.len() > decl.members.len() {
+                    panic!("Too many initializers in struct init");
+                }
+
+                for (idx, init) in fields.iter().enumerate() {
+                    if !decl.members.contains_key(&init.0) {
+                        panic!("Unrecognized member in struct/union field declaration");
+                    }
+
+                    for (inner_idx, inner_init) in fields.iter().enumerate() {
+                        if idx == inner_idx {
+                            continue;
+                        }
+
+                        if init.0 == inner_init.0 {
+                            panic!("Cannot declare the same member twice");
+                        }
+                    }
+                }
+
+                let inits = decl.members.into_iter().map(|(member_name, member)| {
+                    if let Some((_, init)) = fields.iter().find(|(n,_)|*n==member_name) {
+                        // TODO! find a more efficient way of doing this. having to clone for every init kinda sucks
+                        self.typecheck_init(init.clone(), member.ty)
+                    } else {
+                        self.zero_init(&member.ty)
+                    }
+                });
+
+                ast::Initializer::Compound(inits.collect())
+            },
             (Type::Struct(tag), ast::Initializer::Compound(inits)) => {
                 let struct_def = self.type_table.entries.get(tag).unwrap();
 

@@ -154,7 +154,8 @@ impl<E> VarDeclaration<E> {
 #[derive(Debug, Clone)]
 pub enum Initializer<E> {
     Single(E),
-    Compound(Vec<Initializer<E>>)
+    Compound(Vec<Initializer<E>>),
+    Fields(Vec<(Ident, Initializer<E>)>),
 }
 
 #[derive(Debug, Clone)]

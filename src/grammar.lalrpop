@@ -226,7 +226,18 @@ VarDeclWVal: VarDeclaration<Expr> = {
 Initializer: Initializer<Expr> = {
     <Expr> => Initializer::Single(<>),
     "{" <Comma<Initializer>> "}" => Initializer::Compound(<>),
+    "{"  <first:FieldInitItem> <list:("," <FieldInitItem>)*> "}" => {
+        let mut list = list; 
+        let mut l = vec![first];
+        l.append(&mut list);
+
+        Initializer::Fields(l)
+    },
 };
+
+FieldInitItem: (Ident, Initializer<Expr>) = {
+    "." <n:Ident> "=" <init:Initializer> => (n, init)
+}
 
 SpecifierList: Vec<Specifier> = {
     Specifier+ => <>

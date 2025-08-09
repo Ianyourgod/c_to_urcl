@@ -218,6 +218,9 @@ impl<'l> FunctionGenerator<'l> {
 
         if let Some(init) = decl.expr {
             match (init, &decl.ty) {
+                (ast::Initializer::Fields(_), _) => unreachable!(),
+
+
                 (ast::Initializer::Single(TypedExpr{expr:ast::DefaultExpr::String(s),ty:_}), _) => {
                     let mut current_offset = 0;
                     s.chars().into_iter().for_each(|c| {
@@ -286,7 +289,9 @@ impl<'l> FunctionGenerator<'l> {
             ast::Initializer::Compound(inits) => {
                 inits.into_iter().flat_map(|i|self.compound_init_flatten(i)).collect()
             },
-            ast::Initializer::Single(i) => vec![i]
+            ast::Initializer::Single(i) => vec![i],
+
+            ast::Initializer::Fields(_) => unreachable!(),
         }
     }
 
