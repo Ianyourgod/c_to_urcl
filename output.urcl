@@ -15,22 +15,48 @@ HLT
 .main
 	PSH $2
 	MOV $2 SP
-	SUB SP SP 3
-	.lbl.gen.2.
-	MOV $7 ..str.mir.2.
+	SUB SP SP 7
+	// .lbl.gen.1.
+	.lbl.gen.1.
+	// MOV .na.gen.b.3 3
+	MOV $7 3
 	LSTR $2 -1 $7
-	LLOD $7 $2 -1
-	MOV $7 $7
+	// __LEA tmp.2. .na.gen.b.3
+	SUB $7 $2 1
 	LSTR $2 -2 $7
-	LLOD $7 $2 -2
-	PSH $7
-	CAL .print_str
-	MOV $7 $1
+	// __LEA .conv.asm.v.1. .na.gen.sig.2
+	SUB $7 $2 4
 	LSTR $2 -3 $7
-	LLOD $7 $2 -3
+	// LSTR .conv.asm.v.1. 0 tmp.2.
+	LLOD $7 $2 -2
+	LLOD $9 $2 -3
+	LSTR $9 0 $7
+	// __LEA .conv.asm.v.2. .na.gen.sig.2
+	SUB $7 $2 4
+	LSTR $2 -5 $7
+	// ADD .conv.asm.v.2. .conv.asm.v.2. 0
+	LLOD $7 $2 -5
+	ADD $7 $7 0
+	LSTR $2 -5 $7
+	// __LEA .conv.asm.v.3. tmp.3.
+	SUB $7 $2 7
+	LSTR $2 -6 $7
+	// CPY .conv.asm.v.3. .conv.asm.v.2.
+	LLOD $7 $2 -5
+	LLOD $8 $2 -6
+	CPY $8 $7
+	// ADD .conv.asm.v.2. .conv.asm.v.2. 1
+	LLOD $7 $2 -5
+	ADD $7 $7 1
+	LSTR $2 -5 $7
+	// ADD .conv.asm.v.3. .conv.asm.v.3. 1
+	LLOD $7 $2 -6
+	ADD $7 $7 1
+	LSTR $2 -6 $7
+	// MOV $1 tmp.3.
+	LLOD $7 $2 -7
 	MOV $1 $7
+	// RET
 	MOV SP $2
 	POP $2
 	RET
-..str.mir.2.
-	DW ["hiiii!!!", 0]

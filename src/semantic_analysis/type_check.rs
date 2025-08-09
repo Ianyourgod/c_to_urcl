@@ -2,7 +2,10 @@ use std::collections::HashMap;
 use std::fmt::Display;
 use std::rc::Rc;
 
+use indexmap::IndexMap;
+
 use crate::ast::{self, Expr, TypedExpr, DefaultExpr, Type, Statement};
+use crate::mir::mir_gen::get_size_of_type;
 use crate::Ident;
 
 #[derive(Debug, Clone)]
@@ -93,6 +96,39 @@ impl Display for StaticInit {
     }
 }
 
+#[derive(Debug, Clone)]
+pub struct TypeTable {
+    pub entries: HashMap<Ident, UserTyEntry>,
+}
+
+impl TypeTable {
+    pub fn new() -> Self {
+        Self {
+            entries: HashMap::new(),
+        }
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct UserTyEntry {
+    pub ty: UserTyEntryTy,
+    pub size: u16,
+    pub members: IndexMap<Ident, MemberEntry>,
+}
+
+#[derive(Debug, Clone, Copy)]
+pub enum UserTyEntryTy {
+    Struct,
+    Union,
+}
+
+#[derive(Debug, Clone)]
+pub struct MemberEntry {
+    pub name: Ident,
+    pub ty: Type,
+    pub offset: u16, // NOTE: this will be 0 for all union members
+}
+
 impl SymbolTable {
     pub fn new() -> Self {
         Self {
@@ -111,20 +147,22 @@ impl SymbolTable {
 
 pub struct TypeChecker {
     symbol_table: SymbolTable,
+    type_table: TypeTable,
     current_ret_ty: Type,
-    strings: u32
+    strings: u16
 }
 
 impl TypeChecker {
     pub fn new() -> Self {
         Self {
             symbol_table: SymbolTable::new(),
+            type_table: TypeTable::new(),
             current_ret_ty: Type::Int,
             strings: 0
         }
     }
 
-    pub fn typecheck(mut self, program: ast::Program<Expr>) -> (ast::Program<TypedExpr>, SymbolTable) {
+    pub fn typecheck(mut self, program: ast::Program<Expr>) -> (ast::Program<TypedExpr>, SymbolTable, TypeTable) {
         let program = ast::Program {
             top_level_items:
                 program.top_level_items.into_iter().filter_map(|f|{
@@ -137,27 +175,137 @@ impl TypeChecker {
                             self.typecheck_file_scope_var_decl(v);
 
                             None
-                        }
+                        },
+                        ast::Declaration::Struct(struct_decl) => {
+                            self.typecheck_struct_decl(struct_decl);
+
+                            None
+                        },
+                        ast::Declaration::Union(union_decl) => {
+                            self.typecheck_union_decl(union_decl);
+
+                            None
+                        },
                     }
                 }).collect()
         };
 
-        (program, self.symbol_table)
+        (program, self.symbol_table, self.type_table)
+    }
+
+    fn typecheck_struct_decl(&mut self, struct_decl: ast::StructDeclaration) {
+        if struct_decl.members.is_empty() {
+            return;
+        }
+
+        self.validate_struct_decl(&struct_decl);
+
+        let mut struct_size = 0;
+        let members = struct_decl.members.into_iter().map(|member| {
+            let offset = struct_size;
+
+            struct_size += get_size_of_type(&member.ty, &self.type_table);
+
+            (member.name.clone(), MemberEntry {
+                name: member.name,
+                ty: member.ty,
+                offset
+            })
+        }).collect::<IndexMap<_, _>>();
+
+        self.type_table.entries.insert(struct_decl.name, UserTyEntry {
+            ty: UserTyEntryTy::Struct,
+            size: struct_size,
+            members: members.into()
+        });
+    }
+
+    fn validate_struct_decl(&mut self, struct_decl: &ast::StructDeclaration) {
+        if self.type_table.entries.contains_key(&struct_decl.name) {
+            panic!("Cannot redeclare struct");
+        }
+
+        for (idx, member) in struct_decl.members.iter().enumerate() {
+            for (other_idx, other) in struct_decl.members.iter().enumerate() {
+                if idx == other_idx { continue; }
+
+                if member.name == other.name { panic!("Cannot have 2 members of the same name"); }
+
+                if !member.ty.is_complete(&self.type_table) {
+                    panic!("Member cannot have incomplete type");
+                }
+
+                if let Type::Fn { .. } = member.ty {
+                    panic!("Member cannot have function type");
+                }
+            }
+        }
+    }
+
+    fn typecheck_union_decl(&mut self, union_decl: ast::UnionDeclaration) {
+        if union_decl.members.is_empty() {
+            return;
+        }
+
+        self.validate_union_decl(&union_decl);
+
+        let mut union_size = 0;
+        let members = union_decl.members.into_iter().map(|member| {
+            union_size = union_size.max(get_size_of_type(&member.ty, &self.type_table));
+
+            (member.name.clone(), MemberEntry {
+                name: member.name,
+                ty: member.ty,
+                offset: 0
+            })
+        }).collect::<IndexMap<_, _>>();
+
+        self.type_table.entries.insert(union_decl.name, UserTyEntry {
+            ty: UserTyEntryTy::Union,
+            size: union_size,
+            members: members.into()
+        });
+    }
+
+    fn validate_union_decl(&mut self, union_decl: &ast::UnionDeclaration) {
+        if self.type_table.entries.contains_key(&union_decl.name) {
+            panic!("Cannot redeclare union");
+        }
+
+        for (idx, member) in union_decl.members.iter().enumerate() {
+            for (other_idx, other) in union_decl.members.iter().enumerate() {
+                if idx == other_idx { continue; }
+
+                if member.name == other.name { panic!("Cannot have 2 members of the same name"); }
+
+                if !member.ty.is_complete(&self.type_table) {
+                    panic!("Member cannot have incomplete type");
+                }
+
+                if let Type::Fn { .. } = member.ty {
+                    panic!("Member cannot have function type");
+                }
+            }
+        }
     }
 
     fn typecheck_function(&mut self, function: ast::FunctionDecl<Expr>) -> ast::FunctionDecl<TypedExpr> {
         let fn_type = Type::Fn {
             params: function.params.iter().map(|(t, _)|{
+                if !t.is_complete(&self.type_table) && function.block.is_some() {
+                    panic!("Cannot have incomplete type as a parameter in a function definition");
+                }
+                
                 if let Type::Array(t, _) = t {
-                    t.as_ref()
+                    Type::Pointer(t.clone())
                 } else {
-                    t
-                }.clone()
+                    t.clone()
+                }
             }).collect(),
             ret_ty: Box::new(function.ret_ty.clone())
         };
 
-        Self::validate_type_specifier(&fn_type);
+        self.validate_type_specifier(&fn_type);
 
         let has_body = function.block.is_some();
         let mut global = function.storage_class != Some(ast::StorageClass::Static);
@@ -209,7 +357,7 @@ impl TypeChecker {
 
     // we can return nothing as tacky uses the symbol table to generate static vars
     fn typecheck_file_scope_var_decl(&mut self, var_decl: ast::VarDeclaration<Expr>) {
-        Self::validate_type_specifier(&var_decl.ty);
+        self.validate_type_specifier(&var_decl.ty);
 
         let default_init = if var_decl.storage_class == Some(ast::StorageClass::Extern) {
             InitialValue::NoInit
@@ -258,6 +406,29 @@ impl TypeChecker {
 
     fn init_to_static(&mut self, init: ast::Initializer<Expr>, ty: &Type) -> Vec<StaticInit> {
         match (init, ty) {
+            (ast::Initializer::Compound(inits), ast::Type::Union(name)) |
+            (ast::Initializer::Compound(inits), ast::Type::Struct(name)) => {
+                let decl = self.type_table.entries.get(name).unwrap();
+
+                if inits.len() > decl.members.len() {
+                    panic!("Too many initializers in struct init");
+                }
+
+                let mut current_size = 0;
+                let mut static_inits = Vec::with_capacity(decl.size as usize);
+                let decl_size = decl.size;
+
+                for (init, member) in inits.into_iter().zip(decl.members.values().cloned().collect::<Vec<_>>().into_iter()) {
+                    static_inits.append(&mut self.init_to_static(init, &member.ty));
+                    current_size += get_size_of_type(&member.ty, &self.type_table);
+                }
+
+                for _ in current_size..decl_size {
+                    static_inits.push(StaticInit::ZeroInit);
+                }
+
+                static_inits
+            },
             (ast::Initializer::Compound(inits), ast::Type::Array(_, _)) => {
                 self.compound_init_to_static_inits_rec(inits, ty)
             },
@@ -353,6 +524,20 @@ impl TypeChecker {
             ast::Type::Pointer(_) => vec![StaticInit::IntInit(0)],
             ast::Type::Char => vec![StaticInit::CharInit(0)],
             ast::Type::UChar => vec![StaticInit::UCharInit(0)],
+            ast::Type::Struct(tag) => {
+                let decl = self.type_table.entries.get(tag).unwrap();
+
+                // lowk this isnt how i should do it (shouldn't use IntInit for everything),
+                // but it won't cause any issues probably so who cares....
+                std::iter::repeat_n(StaticInit::IntInit(0), decl.size as usize).collect()
+            },
+            ast::Type::Union(tag) => {
+                let decl = self.type_table.entries.get(tag).unwrap();
+
+                // lowk this isnt how i should do it (shouldn't use IntInit for everything),
+                // but it won't cause any issues probably so who cares....
+                std::iter::repeat_n(StaticInit::IntInit(0), decl.size as usize).collect()
+            },
 
             ast::Type::Void => unreachable!(),
             ast::Type::Fn { .. } => unreachable!()
@@ -360,8 +545,12 @@ impl TypeChecker {
     }
 
     fn typecheck_var_decl(&mut self, var_decl: ast::VarDeclaration<Expr>) -> ast::VarDeclaration<TypedExpr> {
-        Self::validate_type_specifier(&var_decl.ty);
+        self.validate_type_specifier(&var_decl.ty);
         
+        if !var_decl.ty.is_complete(&self.type_table) && !(var_decl.storage_class == Some(ast::StorageClass::Extern) && var_decl.expr.is_none()) {
+            panic!("Cannot declare variable with incomplete type");
+        }
+
         if var_decl.storage_class == Some(ast::StorageClass::Extern) {
             if var_decl.expr.is_some() {
                 panic!("Cannot have init on local extern variable declaration");
@@ -401,6 +590,27 @@ impl TypeChecker {
 
     fn typecheck_init(&mut self, init: ast::Initializer<Expr>, target_type: Type) -> ast::Initializer<TypedExpr> {
         match (&target_type, init) {
+            (Type::Struct(tag), ast::Initializer::Compound(inits)) => {
+                let struct_def = self.type_table.entries.get(tag).unwrap();
+
+                let inits_len = inits.len();
+
+                if inits_len > struct_def.members.len() {
+                    panic!("Too many items in initializer");
+                }
+
+                let zeros = struct_def.members.values().into_iter().skip(inits_len).map(|entry| {
+                    self.zero_init(&entry.ty)
+                }).collect::<Vec<_>>();
+
+                let vals = struct_def.members.values().into_iter().map(|m|m.ty.clone()).collect::<Vec<_>>().into_iter(); // this is some bullshit but i dont care
+                
+                let typechecked_inits = inits.into_iter().zip(vals).map(|(init_elem, member)| {
+                    self.typecheck_init(init_elem, member)
+                }).chain(zeros).collect();
+
+                ast::Initializer::Compound(typechecked_inits)
+            },
             (Type::Array(inner_ty, len), ast::Initializer::Single(Expr(DefaultExpr::String(s)))) => {
                 if !inner_ty.is_char_ty() {
                     panic!("Cannot initialize a non-char array with a string");
@@ -412,7 +622,7 @@ impl TypeChecker {
                 ast::Initializer::Single(TypedExpr::new(DefaultExpr::String(s), target_type))
             },
             (_, ast::Initializer::Single(expr)) => {
-                let expr = self.typecheck_and_convert(expr);
+                let expr = self.typecheck_expr_and_convert(expr);
                 let expr = self.convert_by_assignment(expr, &target_type);
                 ast::Initializer::Single(expr)
             },
@@ -431,7 +641,7 @@ impl TypeChecker {
 
                 ast::Initializer::Compound(inits)
             },
-            _ => panic!("Cannot initialize a scalar object with a compound initializer")
+            _ => panic!("Cannot initialize a scalar object with a compound initializer {:?}", target_type)
         }
     }
 
@@ -443,6 +653,11 @@ impl TypeChecker {
             Type::Array(ty, len) => {
                 ast::Initializer::Compound(std::iter::repeat(self.zero_init(ty.as_ref())).take(*len as usize).collect())
             },
+            Type::Union(name) |
+            Type::Struct(name) => {
+                let decl = self.type_table.entries.get(name).unwrap();
+                ast::Initializer::Compound(decl.members.values().map(|member| self.zero_init(&member.ty)).collect())
+            },
             Type::Char => ast::Initializer::Single(TypedExpr::new(DefaultExpr::Constant(ast::Const::Char(0)), ast::Type::Char)),
             Type::UChar => ast::Initializer::Single(TypedExpr::new(DefaultExpr::Constant(ast::Const::UChar(0)), ast::Type::UChar)),
 
@@ -453,27 +668,37 @@ impl TypeChecker {
 
     fn typecheck_block(&mut self, block: ast::Block<Expr>) -> ast::Block<TypedExpr> {
         ast::Block {
-            statements: block.statements.into_iter().map(|block_item| {
-                match block_item {
+            statements: block.statements.into_iter().filter_map(|block_item| {
+                Some(match block_item {
                     ast::BlockItem::Declaration(decl) => {
-                        ast::BlockItem::Declaration(self.typecheck_declaration(decl))
+                        ast::BlockItem::Declaration(self.typecheck_declaration(decl)?)
                     },
                     ast::BlockItem::Statement(stmt) => {
                         ast::BlockItem::Statement(self.typecheck_statement(stmt))
                     }
-                }
+                })
             }).collect()
         }
     }
 
-    fn typecheck_declaration(&mut self, decl: ast::Declaration<Expr>) -> ast::Declaration<TypedExpr> {
+    fn typecheck_declaration(&mut self, decl: ast::Declaration<Expr>) -> Option<ast::Declaration<TypedExpr>> {
         match decl {
             ast::Declaration::Fn(func_decl) => {
-                ast::Declaration::Fn(self.typecheck_function(func_decl))
+                Some(ast::Declaration::Fn(self.typecheck_function(func_decl)))
             },
             ast::Declaration::Var(var_decl) => {
-                ast::Declaration::Var(self.typecheck_var_decl(var_decl))
-            }
+                Some(ast::Declaration::Var(self.typecheck_var_decl(var_decl)))
+            },
+            ast::Declaration::Struct(struct_decl) => {
+                self.typecheck_struct_decl(struct_decl);
+
+                None
+            },
+            ast::Declaration::Union(union_decl) => {
+                self.typecheck_union_decl(union_decl);
+
+                None
+            },
         }
     }
 
@@ -491,16 +716,16 @@ impl TypeChecker {
                 }
 
                 let expr = expr.map(|expr|{
-                    let expr = self.typecheck_and_convert(expr);
+                    let expr = self.typecheck_expr_and_convert(expr);
                     self.convert_by_assignment(expr, &self.current_ret_ty)
                 });
 
                 Statement::Return(expr)
             },
             Statement::Block(block) => Statement::Block(self.typecheck_block(block)),
-            Statement::Expr(expr) => Statement::Expr(self.typecheck_and_convert(expr)),
+            Statement::Expr(expr) => Statement::Expr(self.typecheck_expr_and_convert(expr)),
             Statement::If(cond, box (then_stmt, else_stmt)) => {
-                let cond = self.typecheck_and_convert(cond);
+                let cond = self.typecheck_expr_and_convert(cond);
 
                 let then_stmt = self.typecheck_statement(then_stmt);
                 let else_stmt = else_stmt.map(|s|self.typecheck_statement(s));
@@ -508,14 +733,14 @@ impl TypeChecker {
                 Statement::If(cond, Box::new((then_stmt, else_stmt)))
             },
             Statement::While(cond, box stmt, label) => {
-                let cond = self.typecheck_and_convert(cond);
+                let cond = self.typecheck_expr_and_convert(cond);
 
                 let stmt = self.typecheck_statement(stmt);
 
                 Statement::While(cond, Box::new(stmt), label)
             },
             Statement::DoWhile(cond, box stmt, label) => {
-                let cond = self.typecheck_and_convert(cond);
+                let cond = self.typecheck_expr_and_convert(cond);
 
                 let stmt = self.typecheck_statement(stmt);
 
@@ -524,12 +749,12 @@ impl TypeChecker {
             Statement::For { init, cond, post, box body, label } => {
                 let init = match init {
                     ast::ForInit::Decl(decl) => ast::ForInit::Decl(self.typecheck_var_decl(decl)),
-                    ast::ForInit::Expr(expr) => ast::ForInit::Expr(self.typecheck_and_convert(expr)),
+                    ast::ForInit::Expr(expr) => ast::ForInit::Expr(self.typecheck_expr_and_convert(expr)),
                     ast::ForInit::None => ast::ForInit::None,
                 };
 
-                let cond = cond.map(|c|self.typecheck_and_convert(c));
-                let post = post.map(|p|self.typecheck_and_convert(p));
+                let cond = cond.map(|c|self.typecheck_expr_and_convert(c));
+                let post = post.map(|p|self.typecheck_expr_and_convert(p));
 
                 let body = Box::new(self.typecheck_statement(body));
 
@@ -542,7 +767,7 @@ impl TypeChecker {
         }
     }
 
-    fn typecheck_and_convert(&mut self, expr: Expr) -> TypedExpr {
+    fn typecheck_expr_and_convert(&mut self, expr: Expr) -> TypedExpr {
         let expr = self.typecheck_expr(expr);
 
         match &expr.ty {
@@ -552,6 +777,13 @@ impl TypeChecker {
                     DefaultExpr::Unary(ast::UnOp::AddressOf, Box::new(expr)),
                     Type::Pointer(ty)
                 )
+            },
+            Type::Struct(name) => {
+                if !self.type_table.entries.contains_key(name) {
+                    panic!("Invalid use of incomplete type");
+                }
+
+                expr
             }
             _ => expr
         }
@@ -576,20 +808,20 @@ impl TypeChecker {
                 let ret_ty = (**ret_ty).clone();
 
                 let params: Vec<TypedExpr> = params.into_iter().zip(params_ty.clone()).map(|(p, ty)|{
-                    let e = self.typecheck_and_convert(p);
+                    let e = self.typecheck_expr_and_convert(p);
                     self.convert_by_assignment(e, &ty)
                 }).collect();
 
                 TypedExpr::new(DefaultExpr::FunctionCall(name, params), ret_ty)
             },
             DefaultExpr::Binary(ast::BinOp::Assign(assign_ty), box (left, right)) => {
-                let left = self.typecheck_and_convert(left);
+                let left = self.typecheck_expr_and_convert(left);
 
                 if !self.is_lvalue(&left) {
                     panic!("Cannot assign to a non-lvalue")
                 }
 
-                let right = self.typecheck_and_convert(right);
+                let right = self.typecheck_expr_and_convert(right);
 
                 let left_ty = left.ty.clone();
                 let right = self.convert_by_assignment(right, &left_ty);
@@ -598,8 +830,8 @@ impl TypeChecker {
                     DefaultExpr::Binary(ast::BinOp::Assign(assign_ty), Box::new((left, right))), left_ty)
             },
             DefaultExpr::Binary(op @ (ast::BinOp::Equal | ast::BinOp::NotEqual), box (left, right)) => {
-                let left = self.typecheck_and_convert(left);
-                let right = self.typecheck_and_convert(right);
+                let left = self.typecheck_expr_and_convert(left);
+                let right = self.typecheck_expr_and_convert(right);
 
                 let common_type = if left.ty.is_pointer_type() || right.ty.is_pointer_type() {
                     self.get_common_pointer_type(&left, &right).clone()
@@ -615,8 +847,8 @@ impl TypeChecker {
                 TypedExpr::new(DefaultExpr::Binary(op, Box::new((left, right))), ast::Type::Int)
             },
             DefaultExpr::Binary(ast::BinOp::Add, box (left, right)) => {
-                let left = self.typecheck_and_convert(left);
-                let right = self.typecheck_and_convert(right);
+                let left = self.typecheck_expr_and_convert(left);
+                let right = self.typecheck_expr_and_convert(right);
 
                 if left.ty.is_arithmetic() && right.ty.is_arithmetic() {
                     let common_type = left.ty.get_common_type(&right.ty);
@@ -627,11 +859,11 @@ impl TypeChecker {
                     let ty = Type::Int;
 
                     TypedExpr::new(DefaultExpr::Binary(ast::BinOp::Add, Box::new((left, right))), ty)
-                } else if left.ty.is_pointer_to_complete() && right.ty.is_arithmetic() {
+                } else if left.ty.is_pointer_to_complete(&self.type_table) && right.ty.is_arithmetic() {
                     let right = self.convert_to(right, &ast::Type::Int);
                     let ty = left.ty.clone();
                     TypedExpr::new(DefaultExpr::Binary(ast::BinOp::Add, Box::new((left, right))), ty)
-                } else if right.ty.is_pointer_to_complete() && left.ty.is_arithmetic() {
+                } else if right.ty.is_pointer_to_complete(&self.type_table) && left.ty.is_arithmetic() {
                     let left = self.convert_to(left, &ast::Type::Int);
                     let ty = right.ty.clone();
                     TypedExpr::new(DefaultExpr::Binary(ast::BinOp::Add, Box::new((left, right))), ty)
@@ -640,8 +872,8 @@ impl TypeChecker {
                 }
             },
             DefaultExpr::Binary(ast::BinOp::Sub, box (left, right)) => {
-                let left = self.typecheck_and_convert(left);
-                let right = self.typecheck_and_convert(right);
+                let left = self.typecheck_expr_and_convert(left);
+                let right = self.typecheck_expr_and_convert(right);
 
                 if left.ty.is_arithmetic() && right.ty.is_arithmetic() {
                     let common_type = left.ty.get_common_type(&right.ty);
@@ -652,11 +884,11 @@ impl TypeChecker {
                     let ty = Type::Int;
 
                     TypedExpr::new(DefaultExpr::Binary(ast::BinOp::Sub, Box::new((left, right))), ty)
-                } else if left.ty.is_pointer_to_complete() && right.ty.is_arithmetic() {
+                } else if left.ty.is_pointer_to_complete(&self.type_table) && right.ty.is_arithmetic() {
                     let right = self.convert_to(right, &ast::Type::Int);
                     let ty = left.ty.clone();
                     TypedExpr::new(DefaultExpr::Binary(ast::BinOp::Add, Box::new((left, right))), ty)
-                } else if left.ty.is_pointer_to_complete() && left.ty == right.ty {
+                } else if left.ty.is_pointer_to_complete(&self.type_table) && left.ty == right.ty {
                     let ty = left.ty.clone();
                     TypedExpr::new(DefaultExpr::Binary(ast::BinOp::Add, Box::new((left, right))), ty)
                 } else {
@@ -664,10 +896,10 @@ impl TypeChecker {
                 }
             },
             DefaultExpr::Binary(op, box (left, right)) => {
-                let left = self.typecheck_and_convert(left);
-                let right = self.typecheck_and_convert(right);
+                let left = self.typecheck_expr_and_convert(left);
+                let right = self.typecheck_expr_and_convert(right);
 
-                if !left.ty.is_complete() || right.ty.is_complete() {
+                if !left.ty.is_complete(&self.type_table) || right.ty.is_complete(&self.type_table) {
                     panic!("Cannot do arithmatic to incomplete types");
                 }
 
@@ -685,7 +917,7 @@ impl TypeChecker {
                 TypedExpr::new(DefaultExpr::Binary(op, Box::new((left, right))), ty)
             },
             DefaultExpr::Unary(ast::UnOp::Not, box inner) => {
-                let inner = self.typecheck_and_convert(inner);
+                let inner = self.typecheck_expr_and_convert(inner);
 
                 if !inner.ty.is_scalar() {
                     panic!("Cannot apply not to non-scalar type");
@@ -696,7 +928,7 @@ impl TypeChecker {
                 TypedExpr::new(DefaultExpr::Unary(ast::UnOp::Not, Box::new(inner)), ty)
             },
             DefaultExpr::Unary(ast::UnOp::Dereference, box inner) => {
-                let inner = self.typecheck_and_convert(inner);
+                let inner = self.typecheck_expr_and_convert(inner);
 
                 if inner.ty.is_void_ptr() {
                     panic!("Cannot dereference void pointer");
@@ -722,7 +954,7 @@ impl TypeChecker {
                 
             },
             DefaultExpr::Unary(op, box inner) => {
-                let inner = self.typecheck_and_convert(inner);
+                let inner = self.typecheck_expr_and_convert(inner);
 
                 let ty = inner.ty.clone();
 
@@ -740,9 +972,9 @@ impl TypeChecker {
                 TypedExpr::new(DefaultExpr::Var(v), ty.clone())
             },
             DefaultExpr::Ternary(box (cond, then_expr, else_expr)) => {
-                let cond = self.typecheck_and_convert(cond);
-                let then_expr = self.typecheck_and_convert(then_expr);
-                let else_expr = self.typecheck_and_convert(else_expr);
+                let cond = self.typecheck_expr_and_convert(cond);
+                let then_expr = self.typecheck_expr_and_convert(then_expr);
+                let else_expr = self.typecheck_expr_and_convert(else_expr);
 
                 if !cond.ty.is_scalar() {
                     panic!("Ternary condition must be scalar");
@@ -767,7 +999,7 @@ impl TypeChecker {
                 let is_void = t.is_void();
                 let is_scalar = t.is_scalar();
 
-                let inner = self.typecheck_and_convert(inner);
+                let inner = self.typecheck_expr_and_convert(inner);
 
                 let inner_is_scalar = inner.ty.is_scalar();
 
@@ -786,12 +1018,12 @@ impl TypeChecker {
                 cast
             },
             DefaultExpr::Subscript(box (obj, idx)) => {
-                let obj = self.typecheck_and_convert(obj);
-                let idx = self.typecheck_and_convert(idx);
+                let obj = self.typecheck_expr_and_convert(obj);
+                let idx = self.typecheck_expr_and_convert(idx);
 
-                let (refed_ty, obj, idx) = if let Some(ty) = obj.ty.refed_ptr_ty() && obj.ty.is_pointer_to_complete() && idx.ty.is_arithmetic() {
+                let (refed_ty, obj, idx) = if let Some(ty) = obj.ty.refed_ptr_ty() && obj.ty.is_pointer_to_complete(&self.type_table) && idx.ty.is_arithmetic() {
                     (ty.clone(), obj, self.convert_to(idx, &Type::Int))
-                } else if obj.ty.is_arithmetic() && idx.ty.is_pointer_to_complete() && let Some(ty) = idx.ty.refed_ptr_ty() {
+                } else if obj.ty.is_arithmetic() && idx.ty.is_pointer_to_complete(&self.type_table) && let Some(ty) = idx.ty.refed_ptr_ty() {
                     (ty.clone(), self.convert_to(obj, &Type::Int), idx)
                 } else {
                     panic!("Subscript must have ptr and int operands");
@@ -806,9 +1038,9 @@ impl TypeChecker {
             },
 
             DefaultExpr::SizeOfT(ty) => {
-                Self::validate_type_specifier(&ty);
+                self.validate_type_specifier(&ty);
 
-                if !ty.is_complete() {
+                if !ty.is_complete(&self.type_table) {
                     panic!("Cannot get the size of incomplete type");
                 }
 
@@ -817,31 +1049,68 @@ impl TypeChecker {
             DefaultExpr::SizeOf(inner) => {
                 let inner = self.typecheck_expr(*inner);
 
-                if !inner.ty.is_complete() {
+                if !inner.ty.is_complete(&self.type_table) {
                     panic!("Cannot get the size of incomplete type");
                 }
 
                 TypedExpr::new(DefaultExpr::SizeOf(Box::new(inner)), Type::UInt)
-            }
+            },
+            DefaultExpr::MemberAccess(user_ty_expr, member) => {
+                let user_ty_expr = self.typecheck_expr_and_convert(*user_ty_expr);
+
+                let member_def = match &user_ty_expr.ty {
+                    Type::Union(name) |
+                    Type::Struct(name) => {
+                        self.type_table.entries.get(name).unwrap().members
+                            .get(&member).unwrap_or_else(|| {
+                                panic!("Struct/Union has no member with this name")
+                            })
+                    },
+                    _ => panic!("Cannot get member of non-struct/union type")
+                };
+
+                TypedExpr::new(DefaultExpr::MemberAccess(Box::new(user_ty_expr), member), member_def.ty.clone())
+            },
+            DefaultExpr::PtrMemberAccess(user_ty_expr, member) => {
+                let user_ty_expr = self.typecheck_expr_and_convert(*user_ty_expr);
+
+                let member_def = match &user_ty_expr.ty {
+                    Type::Pointer(inner) => {
+                        match inner.as_ref() {
+                            Type::Union(name) |
+                            Type::Struct(name) => {
+                                self.type_table.entries.get(name).unwrap().members
+                                    .get(&member).unwrap_or_else(|| {
+                                        panic!("Struct/Union has no member with this name")
+                                    })
+                            },
+                            _ => panic!("Cannot get member of non-struct/union type")
+                        }
+                    },
+                    _ => panic!("Cannot get member of non-struct/union type")
+                };
+
+                TypedExpr::new(DefaultExpr::PtrMemberAccess(Box::new(user_ty_expr), member), member_def.ty.clone())
+            },
         }
     }
 
-    fn validate_type_specifier(ty: &Type) {
+    fn validate_type_specifier(&self, ty: &Type) {
         match ty {
             Type::Array(inner, _) => {
-                if !inner.is_complete() {
+                if !inner.is_complete(&self.type_table) {
                     panic!("Cannot make an array of an incomplete type");
                 }
-                Self::validate_type_specifier(&inner);
+                self.validate_type_specifier(&inner);
             },
             Type::Pointer(inner) => {
-                Self::validate_type_specifier(&inner);
+                self.validate_type_specifier(&inner);
             },
             Type::Fn { params, ret_ty } => {
                 for param in params {
-                    Self::validate_type_specifier(param);
+                    self.validate_type_specifier(param);
                 }
-                Self::validate_type_specifier(&ret_ty);
+                self.validate_type_specifier(&ret_ty);
             },
             _ => ()
         }
@@ -852,6 +1121,10 @@ impl TypeChecker {
             DefaultExpr::Var(_) |
             DefaultExpr::Unary(ast::UnOp::Dereference, _) |
             DefaultExpr::Subscript(_) => true,
+            DefaultExpr::PtrMemberAccess(_, _) => true,
+            DefaultExpr::MemberAccess(ref struct_expr, _) => {
+                self.is_lvalue(struct_expr.as_ref())
+            },
             _ => false
         }
     }
@@ -911,6 +1184,6 @@ impl TypeChecker {
             return self.convert_to(expr, ty);
         }
 
-        panic!("Cannot convert type");
+        panic!("Cannot convert type {:?} to {:?}", expr.ty, ty);
     }
 }

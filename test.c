@@ -1,7 +1,14 @@
-int print_str(char* str);
+union Sigma {
+    int a;
+    int* b;
+};
 
 int main(void) {
-    char* sigma = "hiiii!!!";
+    union Sigma sig;
 
-    return print_str(sigma);
+    int b = 3;
+
+    sig.b = &b;
+
+    return sig.a;
 }

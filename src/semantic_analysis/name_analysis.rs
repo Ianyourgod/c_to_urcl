@@ -7,7 +7,43 @@ use crate::ast;
 
 #[derive(Debug, Clone)]
 pub struct Context {
-    pub mappings: HashMap<Ident, ContextItem>
+    pub name_mappings: HashMap<Ident, ContextItem>,
+    pub struct_map: HashMap<Ident, UserDefContext>,
+    pub union_map: HashMap<Ident, UserDefContext>,
+}
+
+impl Context {
+    pub fn new() -> Self {
+        Self {
+            name_mappings: HashMap::new(),
+            struct_map: HashMap::new(),
+            union_map: HashMap::new(),
+        }
+    }
+}
+
+#[derive(Debug)]
+pub struct UserDefContext {
+    pub ident: Ident,
+    pub from_this_scope: bool,
+}
+
+impl UserDefContext {
+    pub fn new(ident: Ident) -> Self {
+        Self {
+            ident,
+            from_this_scope: true,
+        }
+    }
+}
+
+impl Clone for UserDefContext {
+    fn clone(&self) -> Self {
+        Self {
+            ident: self.ident.clone(),
+            from_this_scope: false,
+        }
+    }
 }
 
 #[derive(Debug)]
@@ -49,7 +85,7 @@ impl Analyzer {
     }
 
     pub fn analyze(mut self, program: ast::Program<ast::Expr>) -> ast::Program<ast::Expr> {
-        let mut ctx = Context { mappings: HashMap::new() };
+        let mut ctx = Context::new();
 
         ast::Program {
             top_level_items: program.top_level_items.into_iter().map(|f|{
@@ -59,7 +95,13 @@ impl Analyzer {
                     },
                     ast::Declaration::Var(var) => {
                         ast::Declaration::Var(self.analyze_file_scope_var_decl(var, &mut ctx))
-                    }
+                    },
+                    ast::Declaration::Struct(struct_decl) => {
+                        ast::Declaration::Struct(self.analyze_struct(struct_decl, &mut ctx))
+                    },
+                    ast::Declaration::Union(union_decl) => {
+                        ast::Declaration::Union(self.analyze_union(union_decl, &mut ctx))
+                    },
                 }
             }).collect()
         }
@@ -70,15 +112,90 @@ impl Analyzer {
         Rc::new(format!(".na.gen.{}.{}", old_ident, self.tmp_count))
     }
 
+    fn analyze_struct(&mut self, struct_decl: ast::StructDeclaration, context: &mut Context) -> ast::StructDeclaration {
+        let unique_tag = if let Some(ref old_entry) = context.struct_map.get(&struct_decl.name) && old_entry.from_this_scope {
+            old_entry.ident.clone()
+        } else {
+            let tag = self.gen_new_ident(&struct_decl.name);
+            context.struct_map.insert(struct_decl.name.clone(), UserDefContext::new(tag.clone()));
+            tag
+        };
+
+        let members = struct_decl.members.into_iter().map(|member| {
+            let ty = self.process_type(member.ty, context);
+            ast::MemberDeclaration::new(member.name, ty)
+        }).collect();
+
+        ast::StructDeclaration::new(unique_tag, members)
+    }
+
+    fn analyze_union(&mut self, union_decl: ast::UnionDeclaration, context: &mut Context) -> ast::UnionDeclaration {
+        let unique_tag = if let Some(ref old_entry) = context.union_map.get(&union_decl.name) && old_entry.from_this_scope {
+            old_entry.ident.clone()
+        } else {
+            let tag = self.gen_new_ident(&union_decl.name);
+            context.union_map.insert(union_decl.name.clone(), UserDefContext::new(tag.clone()));
+            tag
+        };
+
+        let members = union_decl.members.into_iter().map(|member| {
+            let ty = self.process_type(member.ty, context);
+            ast::MemberDeclaration::new(member.name, ty)
+        }).collect();
+
+        ast::UnionDeclaration::new(unique_tag, members)
+    }
+
+    fn process_type(&mut self, ty: ast::Type, context: &Context) -> ast::Type {
+        match ty {
+            ast::Type::Struct(struct_name) => {
+                if let Some(entry) = context.struct_map.get(&struct_name) {
+                    ast::Type::Struct(entry.ident.clone())
+                } else {
+                    panic!("Cannot use undeclared struct type");
+                }
+            },
+            ast::Type::Union(union_name) => {
+                println!("{union_name}");
+                if let Some(entry) = context.union_map.get(&union_name) {
+                    ast::Type::Union(entry.ident.clone())
+                } else {
+                    panic!("Cannot use undeclared union type");
+                }
+            },
+            ast::Type::Pointer(inner_ty) => {
+                let inner_ty = self.process_type(*inner_ty, context);
+
+                ast::Type::Pointer(Box::new(inner_ty))
+            },
+            ast::Type::Array(inner_ty, len) => {
+                let inner_ty = self.process_type(*inner_ty, context);
+
+                ast::Type::Array(Box::new(inner_ty), len)
+            },
+            ast::Type::Fn { params, ret_ty } => {
+                let ret_ty = Box::new(self.process_type(*ret_ty, context));
+                let params = params.into_iter().map(|ty| self.process_type(ty, context)).collect();
+
+                ast::Type::Fn { params, ret_ty }
+            },
+
+            ast::Type::Void |
+            ast::Type::Int  | ast::Type::UInt  |
+            ast::Type::Char | ast::Type::UChar => ty,
+        }
+    }
+
     fn analyze_file_scope_var_decl(&mut self, mut decl: ast::VarDeclaration<ast::Expr>, context: &mut Context) -> ast::VarDeclaration<ast::Expr> {
         self.add_new_name(decl.name.clone(), context, true);
 
+        decl.ty = self.process_type(decl.ty, context);
         decl.expr = decl.expr.map(|i|self.analyze_init(i, context));
 
         decl
     }
 
-    fn analyze_init(&mut self, init: ast::Initializer<ast::Expr>, context: &mut Context) -> ast::Initializer<ast::Expr> {
+    fn analyze_init(&mut self, init: ast::Initializer<ast::Expr>, context: &Context) -> ast::Initializer<ast::Expr> {
         match init {
             ast::Initializer::Single(e) => ast::Initializer::Single(self.analyze_expr(e, context)),
             ast::Initializer::Compound(c) => ast::Initializer::Compound(c.into_iter().map(|i|self.analyze_init(i, context)).collect())
@@ -93,7 +210,7 @@ impl Analyzer {
         let context = &mut context;
 
         let params = function.params.into_iter().map(|(ty, param)| {
-            if let Some(item) = context.mappings.get(&param) && item.from_this_scope {
+            if let Some(item) = context.name_mappings.get(&param) && item.from_this_scope {
                 panic!("Cannot declare parameter with same name, {param}");
             }
 
@@ -120,7 +237,13 @@ impl Analyzer {
                 }
 
                 ast::Declaration::Fn(self.analyze_function(fn_decl, context))
-            }
+            },
+            ast::Declaration::Struct(struct_decl) => {
+                ast::Declaration::Struct(self.analyze_struct(struct_decl, context))
+            },
+            ast::Declaration::Union(union_decl) => {
+                ast::Declaration::Union(self.analyze_union(union_decl, context))
+            },
         }
     }
 
@@ -143,14 +266,14 @@ impl Analyzer {
         } else {
             old_name.clone()
         };
-        context.mappings.insert(old_name, ContextItem::new(name.clone(), has_linkage));
+        context.name_mappings.insert(old_name, ContextItem::new(name.clone(), has_linkage));
         name
     }
 
     fn analyze_var_decl(&mut self, var_decl: ast::VarDeclaration<ast::Expr>, context: &mut Context) -> ast::VarDeclaration<ast::Expr> {
         let is_extern = var_decl.storage_class == Some(ast::StorageClass::Extern);
-        
-        if let Some(item) = context.mappings.get(&var_decl.name)
+
+        if let Some(item) = context.name_mappings.get(&var_decl.name)
            && item.from_this_scope
            && !(item.has_linkage && is_extern)
         {
@@ -160,12 +283,22 @@ impl Analyzer {
         if is_extern {
             self.add_new_name(var_decl.name.clone(), context, true);
 
-            return var_decl;
+            return ast::VarDeclaration::new(
+                var_decl.name, 
+                self.process_type(var_decl.ty, context),
+                var_decl.expr,
+                var_decl.storage_class
+            );
         }
 
         let name = self.add_new_name(var_decl.name, context, false);
 
-        ast::VarDeclaration::new(name, var_decl.ty, var_decl.expr.map(|i|self.analyze_init(i, context)), var_decl.storage_class)
+        ast::VarDeclaration::new(
+            name,
+            self.process_type(var_decl.ty, context),
+            var_decl.expr.map(|i|self.analyze_init(i, context)),
+            var_decl.storage_class
+        )
     }
 
     fn analyze_statement(&mut self, statement: ast::Statement<ast::Expr>, context: &mut Context) -> ast::Statement<ast::Expr> {
@@ -225,7 +358,7 @@ impl Analyzer {
     }
 
     fn get_ctx_item<'a>(&self, old_ident: &Ident, context: &'a Context) -> &'a ContextItem {
-        if let Some(n) = context.mappings.get(old_ident) {
+        if let Some(n) = context.name_mappings.get(old_ident) {
             n
         } else {
             panic!("Unknown item: {old_ident}");
@@ -277,17 +410,32 @@ impl Analyzer {
                 ast::DefaultExpr::FunctionCall(name.ident.clone(), exprs)
             },
             ast::DefaultExpr::Cast(ty, box inner) => {
+                let ty = self.process_type(ty, context);
                 let inner = self.analyze_expr(inner, context);
 
                 ast::DefaultExpr::Cast(ty, Box::new(inner))
-            }
+            },
             ast::DefaultExpr::SizeOf(box inner) => {
                 let inner = self.analyze_expr(inner, context);
 
                 ast::DefaultExpr::SizeOf(Box::new(inner))
-            }
+            },
+            ast::DefaultExpr::SizeOfT(ty) => {
+                let ty = self.process_type(ty, context);
 
-            ast::DefaultExpr::SizeOfT(_)   |
+                ast::DefaultExpr::SizeOfT(ty)
+            },
+            ast::DefaultExpr::MemberAccess(box inner, member) => {
+                let inner = self.analyze_expr(inner, context);
+
+                ast::DefaultExpr::MemberAccess(Box::new(inner), member)
+            },
+            ast::DefaultExpr::PtrMemberAccess(box inner, member) => {
+                let inner = self.analyze_expr(inner, context);
+
+                ast::DefaultExpr::PtrMemberAccess(Box::new(inner), member)
+            },
+
             ast::DefaultExpr::String(_)    |
             ast::DefaultExpr::Constant(_) => expr.0,
         })

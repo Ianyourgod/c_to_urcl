@@ -2,6 +2,7 @@
 
 use std::rc::Rc;
 
+use crate::semantic_analysis::type_check::TypeTable;
 pub use crate::Ident;
 
 #[derive(Debug, Clone)]
@@ -39,6 +40,51 @@ impl<E> FunctionDecl<E> {
 }
 
 #[derive(Debug, Clone)]
+pub struct StructDeclaration {
+    pub name: Ident,
+    pub members: Vec<MemberDeclaration>,
+}
+
+impl StructDeclaration {
+    pub fn new(name: Ident, members: Vec<MemberDeclaration>) -> Self {
+        Self {
+            name,
+            members
+        }
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct UnionDeclaration {
+    pub name: Ident,
+    pub members: Vec<MemberDeclaration>,
+}
+
+impl UnionDeclaration {
+    pub fn new(name: Ident, members: Vec<MemberDeclaration>) -> Self {
+        Self {
+            name,
+            members
+        }
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct MemberDeclaration {
+    pub name: Ident,
+    pub ty: Type,
+}
+
+impl MemberDeclaration {
+    pub fn new(name: Ident, ty: Type) -> Self {
+        Self {
+            name,
+            ty
+        }
+    }
+}
+
+#[derive(Debug, Clone)]
 pub struct Block<E> {
     pub statements: Vec<BlockItem<E>>
 }
@@ -54,7 +100,9 @@ impl<E> Block<E> {
 #[derive(Debug, Clone)]
 pub enum Declaration<E> {
     Var(VarDeclaration<E>),
-    Fn(FunctionDecl<E>)
+    Fn(FunctionDecl<E>),
+    Struct(StructDeclaration),
+    Union(UnionDeclaration),
 }
 
 #[derive(Debug, Clone)]
@@ -139,6 +187,8 @@ pub enum DefaultExpr<E> {
     String(String),
     SizeOf(Box<E>),
     SizeOfT(Type),
+    MemberAccess(Box<E>, Ident),
+    PtrMemberAccess(Box<E>, Ident),
 }
 
 #[derive(Debug, Clone)]
@@ -222,6 +272,8 @@ pub enum Type {
     Char,
     UChar,
     Void,
+    Struct(Ident),
+    Union(Ident),
 }
 
 impl Type {
@@ -236,6 +288,26 @@ impl Type {
 
         if specifiers.len() == 0 {
             panic!("Must have a type specifier");
+        }
+
+        if specifiers.iter().any(|t|matches!(t, Specifier::Struct(_))) {
+            if specifiers.len() > 1 {
+                panic!("Cannot have struct specifier and other specifiers");
+            }
+
+            let struct_tag = if let Specifier::Struct(t) = specifiers.get(0).unwrap() { t } else { unreachable!() };
+
+            return Self::Struct(struct_tag.clone());
+        }
+
+        if specifiers.iter().any(|t|matches!(t, Specifier::Union(_))) {
+            if specifiers.len() > 1 {
+                panic!("Cannot have struct specifier and other specifiers");
+            }
+
+            let union_tag = if let Specifier::Union(t) = specifiers.get(0).unwrap() { t } else { unreachable!() };
+
+            return Self::Union(union_tag.clone());
         }
 
         if specifiers.contains(&Specifier::Void) {
@@ -268,7 +340,11 @@ impl Type {
             return Self::UInt;
         }
 
-        return Self::Int;
+        if specifiers.contains(&Specifier::Int) {
+            return Self::Int;
+        }
+
+        panic!("Unknown specifier combo");
     }
 
     pub fn get_common_type(&self, other: &Type) -> Type {
@@ -295,6 +371,8 @@ impl Type {
             Type::Fn { .. } |
             Type::Array(_, _) |
             Type::UChar |
+            Type::Struct(_) |
+            Type::Union(_) |
             Type::UInt => false,
 
             Type::Char |
@@ -310,6 +388,8 @@ impl Type {
             Type::Fn { .. } |
             Type::Array(_, _) |
             Type::Void |
+            Type::Struct(_) |
+            Type::Union(_) |
             Type::Pointer(_) => false,
         }
     }
@@ -333,25 +413,41 @@ impl Type {
         match self {
             Self::Void |
             Self::Array(_, _) |
+            Self::Struct(_) |
+            Self::Union(_) |
             Self::Fn { .. } => false,
 
             _ => true,
         }
     }
 
-    pub fn is_complete(&self) -> bool {
-        !matches!(self, Self::Void)
+    pub fn is_complete(&self, type_table: &TypeTable) -> bool {
+        if let Type::Array(inner_ty, _) = self {
+            return inner_ty.is_complete(type_table);
+        }
+        
+        if matches!(self, Self::Void) { return false; }
+        
+        if let Type::Struct(name) | Type::Union(name) = self {
+            return type_table.entries.contains_key(name)
+        }
+
+        return true;
     }
 
-    pub fn is_pointer_to_complete(&self) -> bool {
+    pub fn is_pointer_to_complete(&self, type_table: &TypeTable) -> bool {
         match self {
-            Self::Pointer(inner) => inner.is_complete(),
+            Self::Pointer(inner) => inner.is_complete(type_table),
             _ => false,
         }
     }
 
     pub fn is_void(&self) -> bool {
         matches!(self, Self::Void)
+    }
+
+    pub fn is_fn(&self) -> bool {
+        matches!(self, Self::Fn { .. })
     }
 }
 
@@ -361,7 +457,7 @@ pub enum StorageClass {
     Extern,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Specifier {
     Static,
     Extern,
@@ -370,6 +466,8 @@ pub enum Specifier {
     Signed,
     Char,
     Void,
+    Struct(Ident),
+    Union(Ident),
 }
 
 #[derive(Debug, Clone, Copy, Eq, PartialEq)]

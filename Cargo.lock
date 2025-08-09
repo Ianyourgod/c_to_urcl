@@ -60,6 +60,7 @@ dependencies = [
 name = "c_to_urcl"
 version = "0.1.0"
 dependencies = [
+ "indexmap",
  "lalrpop",
  "lalrpop-util",
 ]

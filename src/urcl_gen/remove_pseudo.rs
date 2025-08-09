@@ -1,11 +1,11 @@
 use std::collections::HashMap;
 
-use crate::semantic_analysis::type_check::{IdentifierAttrs, SymbolTable};
+use crate::semantic_analysis::type_check::{IdentifierAttrs, SymbolTable, TypeTable};
 use crate::urcl_gen::{asm, cpu_definitions::CPUDefinition};
 use crate::mir::{mir_def::Ident, mir_gen::get_size_of_type};
 
-pub fn fix_pvals<'a, T:CPUDefinition>(program: asm::Program<'a, asm::PVal, T>, symbol_table: &'a SymbolTable, cpu: &'a T) -> asm::Program<'a, asm::Val, T> {
-    let r = RemovePseudo::new(symbol_table, cpu);
+pub fn fix_pvals<'a, T:CPUDefinition>(program: asm::Program<'a, asm::PVal, T>, symbol_table: &'a SymbolTable, type_table: &'a TypeTable, cpu: &'a T) -> asm::Program<'a, asm::Val, T> {
+    let r = RemovePseudo::new(symbol_table, type_table, cpu);
 
     r.generate_program(program)
 }
@@ -20,15 +20,17 @@ struct RemovePseudo<'a, T: CPUDefinition> {
     vars: HashMap<Ident, VarPosition>,
     stack_offset: u32,
     symbol_table: &'a SymbolTable,
+    type_table: &'a TypeTable,
     cpu: &'a T
 }
 
 impl<'a, T: CPUDefinition> RemovePseudo<'a, T> {
-    pub fn new(symbol_table: &'a SymbolTable, cpu: &'a T) -> Self {
+    pub fn new(symbol_table: &'a SymbolTable, type_table: &'a TypeTable, cpu: &'a T) -> Self {
         Self {
             vars: HashMap::new(),
             stack_offset: 0,
             symbol_table,
+            type_table,
             cpu,
         }
     }
@@ -77,6 +79,9 @@ impl<'a, T: CPUDefinition> RemovePseudo<'a, T> {
         const PVAL_DST: u8 = 7;
         const PVAL_SRC1: u8 = 7;
         const PVAL_SRC2: u8 = 8;
+        const PVAL_SRC3: u8 = 9;
+
+        instructions.push(asm::Instr::Comment(instruction.to_string()));
         
         match instruction {
             asm::Instr::Binary { binop, src1, src2, dst } => {
@@ -116,12 +121,10 @@ impl<'a, T: CPUDefinition> RemovePseudo<'a, T> {
             asm::Instr::LStr { src, dst, offset } => {
                 let offset = self.convert_pval_src(offset, PVAL_SRC2, instructions);
                 let src = self.convert_pval_src(src, PVAL_SRC1, instructions);
-                let (dst, idx) = self.convert_pval_dst(dst, PVAL_DST);
+                let dst = self.convert_pval_src(dst, PVAL_SRC3, instructions);
 
                 //println!("STR {:?} -> {:?} {:?}", src, dst, offset);
                 instructions.push(asm::Instr::LStr { src, dst, offset });
-
-                if let Some(idx) = idx { self.pval_dst_write(PVAL_DST, idx, instructions); }
             },
             asm::Instr::Push(src) => {
                 let src = self.convert_pval_src(src, PVAL_SRC1, instructions);
@@ -173,6 +176,15 @@ impl<'a, T: CPUDefinition> RemovePseudo<'a, T> {
                 }
 
                 if let Some(idx) = idx { self.pval_dst_write(PVAL_DST, idx, instructions); }
+            },
+            asm::Instr::Cpy { src, dst } => {
+                let src = self.convert_pval_src(src, PVAL_SRC1, instructions);
+                let dst = self.convert_pval_src(dst, PVAL_SRC2, instructions);
+
+                instructions.push(asm::Instr::Cpy {
+                    src,
+                    dst
+                });
             }
 
             asm::Instr::Call(n) => instructions.push(asm::Instr::Call(n)),
@@ -181,6 +193,7 @@ impl<'a, T: CPUDefinition> RemovePseudo<'a, T> {
                 instructions.push(asm::Instr::Pop(asm::Reg::bp_val(self.cpu)));
                 instructions.push(asm::Instr::Ret)
             },
+            asm::Instr::Comment(c) => instructions.push(asm::Instr::Comment(c)),
             asm::Instr::Jmp { label } => instructions.push(asm::Instr::Jmp { label }),
             asm::Instr::Label(label) => instructions.push(asm::Instr::Label(label)),
         }
@@ -216,7 +229,7 @@ impl<'a, T: CPUDefinition> RemovePseudo<'a, T> {
                 }
 
                 asm::Reg::val(load_to)
-            }
+            },
         }
     }
 
@@ -239,7 +252,7 @@ impl<'a, T: CPUDefinition> RemovePseudo<'a, T> {
 
             match entry.attrs {
                 IdentifierAttrs::Local => {
-                    self.stack_offset += get_size_of_type(&entry.ty) as u32;
+                    self.stack_offset += get_size_of_type(&entry.ty, self.type_table) as u32;
                     VarPosition::Stack(self.stack_offset)
                 },
                 IdentifierAttrs::Constant { .. } |

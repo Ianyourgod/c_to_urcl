@@ -1,0 +1,28 @@
+BITS == 16
+MINREG 26
+MINHEAP 4096
+RUN ROM
+MINSTACK 16
+
+MOV $2 SP
+CAL .main
+SBGE ..COMP_BLT_IN..PRINT_NUM..P_N $1 0
+OUT %TEXT 45
+..COMP_BLT_IN..PRINT_NUM..P_N
+ABS $2 $1
+OUT %NUMB $2
+HLT
+.main
+	.lbl.gen.1.
+	MOV .na.gen.b.3 3
+	__LEA tmp.2. .na.gen.b.3
+	__LEA .conv.asm.v.1. .na.gen.sig.2
+	LSTR .conv.asm.v.1. 0 tmp.2.
+	__LEA .conv.asm.v.2. .na.gen.sig.2
+	ADD .conv.asm.v.2. .conv.asm.v.2. 0
+	__LEA .conv.asm.v.3. tmp.3.
+	CPY .conv.asm.v.3. .conv.asm.v.2.
+	ADD .conv.asm.v.2. .conv.asm.v.2. 1
+	ADD .conv.asm.v.3. .conv.asm.v.3. 1
+	MOV $1 tmp.3.
+	RET

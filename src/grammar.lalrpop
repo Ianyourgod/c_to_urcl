@@ -61,7 +61,9 @@ ForInit: ForInit<Expr> = {
     Declaration => {
         match <> {
             Declaration::Var(v) => ForInit::Decl(v),
-            Declaration::Fn(_) => panic!("Cannot have a function declaration inside a for loop")
+            Declaration::Fn(_) => panic!("Cannot have a function declaration inside a for loop"),
+            Declaration::Struct(_) => panic!("Cannot have a struct declaration inside a for loop"),
+            Declaration::Union(_) => panic!("Cannot have a struct declaration inside a for loop"),
         }
     },
     <e:Expr> ";" => ForInit::Expr(e),
@@ -69,35 +71,23 @@ ForInit: ForInit<Expr> = {
 }
 
 Specifier: Specifier = {
-    "extern"   => Specifier::Extern,
-    "static"   => Specifier::Static,
-    "int"      => Specifier::Int,
-    "unsigned" => Specifier::Unsigned,
-    "char"     => Specifier::Char,
-    "void"     => Specifier::Void,
+    "extern"         => Specifier::Extern,
+    "static"         => Specifier::Static,
+    "int"            => Specifier::Int,
+    "unsigned"       => Specifier::Unsigned,
+    "char"           => Specifier::Char,
+    "void"           => Specifier::Void,
+    "struct" <Ident> => Specifier::Struct(<>),
+    "union"  <Ident> => Specifier::Union(<>),
 };
 
 Type: Type = {
-    <spec_list:SpecifierList> => {
-        let mut types = Vec::new();
-        for spec in spec_list {
-            match spec {
-                Specifier::Extern |
-                Specifier::Static => {
-                    panic!("Didn't expect an storage class specifiers here... only types....");
-                },
-
-                Specifier::Void        |
-                Specifier::Char        |
-                Specifier::Int         |
-                Specifier::Signed      |
-                Specifier::Unsigned => {
-                    types.push(spec);
-                },
-            }
+    <tas:TypeAndStorageClass> => {
+        if tas.1.is_some() {
+            panic!("Didn't expect a storage class here!");
         }
 
-        return Type::from_specifiers(types)
+        tas.0
     }
 }
 
@@ -105,7 +95,8 @@ TypeAndStorageClass: (Type, Option<StorageClass>) = {
     <spec_list:SpecifierList> => {
         let mut types = Vec::new();
         let mut storage_class = None;
-        for spec in spec_list {
+        let mut spec_list = spec_list.into_iter();
+        while let Some(spec) = spec_list.next() {
             match spec {
                 Specifier::Extern => {
                     if storage_class.is_some() { panic!("Cannot have more than one storage class!!!!"); }
@@ -116,6 +107,8 @@ TypeAndStorageClass: (Type, Option<StorageClass>) = {
                     storage_class = Some(StorageClass::Static);
                 },
 
+                Specifier::Struct(_)   |
+                Specifier::Union(_)    |
                 Specifier::Void        |
                 Specifier::Char        |
                 Specifier::Int         |
@@ -190,6 +183,29 @@ Declaration: Declaration<Expr> = {
         } else {
             Declaration::Var(VarDeclaration::new(name, ty, None, storage_class))
         }
+    },
+    "struct" <name:Ident> <decls:("{" <MemberDecl+> "}")?> ";" => {
+        let decls = decls.unwrap_or(Vec::new());
+
+        Declaration::Struct(StructDeclaration::new(name, decls))
+    },
+    "union" <name:Ident> <decls:("{" <MemberDecl+> "}")?> ";" => {
+        let decls = decls.unwrap_or(Vec::new());
+
+        Declaration::Union(UnionDeclaration::new(name, decls))
+    },
+
+};
+
+MemberDecl: MemberDeclaration = {
+    <base_ty:Type> <decl:Declarator> ";" => {
+        let (name, ty, _) = decl.process(base_ty);
+
+        if ty.is_fn() {
+            panic!("Cannot have a function as a member declaration");
+        }
+
+        MemberDeclaration::new(name, ty)
     }
 };
 
@@ -363,6 +379,20 @@ PostfixTerm: Expr = {
         let mut expr = Expr::new(DefaultExpr::Subscript(Box::new((t, subs[0].clone()))));
         for sub in subs.into_iter().skip(1) {
             expr = Expr::new(DefaultExpr::Subscript(Box::new((expr, sub))));
+        }
+        expr
+    },
+    <t:PrimaryTerm> <dots:("." <Ident>)+> => {
+        let mut expr = Expr::new(DefaultExpr::MemberAccess(Box::new(t), dots[0].clone()));
+        for dot in dots.into_iter().skip(1) {
+            expr = Expr::new(DefaultExpr::MemberAccess(Box::new(expr), dot));
+        }
+        expr
+    },
+    <t:PrimaryTerm> <arrows:("->" <Ident>)+> => {
+        let mut expr = Expr::new(DefaultExpr::PtrMemberAccess(Box::new(t), arrows[0].clone()));
+        for arrow in arrows.into_iter().skip(1) {
+            expr = Expr::new(DefaultExpr::PtrMemberAccess(Box::new(expr), arrow));
         }
         expr
     },

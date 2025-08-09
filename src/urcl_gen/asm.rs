@@ -154,6 +154,11 @@ where
         src: V,
         dst: V,
     },
+    Cpy {
+        src: V,
+        dst: V,
+    },
+    Comment(String),
     Label(GenericBlockID),
     Push(V),
     Pop(V),
@@ -304,10 +309,17 @@ where
             Instr::Call(name) => {
                 format!("CAL .{name}")
             },
+            Instr::Cpy { src, dst } => {
+                format!("CPY {dst} {src}")
+            }
 
 
             Instr::Lea { src, dst } => {
-                format!("__LEA {dst} {src} // I SHOULD BE DELETED BY RP PASS!!!!")
+                format!("__LEA {dst} {src}")
+            },
+
+            Instr::Comment(contents) => {
+                format!("// {contents}")
             }
         };
 

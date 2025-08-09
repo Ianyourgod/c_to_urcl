@@ -1,26 +1,32 @@
 use std::collections::{HashSet, VecDeque};
+use std::rc::Rc;
 
 use crate::urcl_gen::{asm, cpu_definitions::CPUDefinition};
 use crate::mir::mir_def;
-use crate::semantic_analysis::type_check::{IdentifierAttrs, SymbolTable};
+use crate::semantic_analysis::type_check::{IdentifierAttrs, SymbolTable, SymbolTableEntry, TypeTable};
+use crate::Ident;
 
 pub struct ASMGenerator<'a, CPU> 
 where
     CPU: CPUDefinition
 {
-    pub symbol_table: &'a SymbolTable,
-    cpu: &'a CPU
+    pub symbol_table: &'a mut SymbolTable,
+    cpu: &'a CPU,
+    type_table: &'a TypeTable,
+    tmp_count: usize,
 }
 
 impl<'a, T: CPUDefinition> ASMGenerator<'a, T> {
-    pub fn new(symbol_table: &'a SymbolTable, cpu: &'a T) -> Self {
+    pub fn new(symbol_table: &'a mut SymbolTable, type_table: &'a TypeTable, cpu: &'a T) -> Self {
         Self {
             symbol_table,
-            cpu
+            cpu,
+            type_table,
+            tmp_count: 0,
         }
     }
 
-    pub fn mir_to_asm(&self, mir: mir_def::Program) -> asm::Program<'_, asm::PVal, T> {
+    pub fn mir_to_asm(mut self, mir: mir_def::Program) -> asm::Program<'a, asm::PVal, T> {
         asm::Program {
             cpu: self.cpu,
             top_level_items: mir.top_level.into_iter().map(|tl| {
@@ -59,7 +65,7 @@ impl<'a, T: CPUDefinition> ASMGenerator<'a, T> {
         }
     }
 
-    fn cfg_to_asm(&self, cfg: mir_def::CFG, instructions: &mut Vec<asm::Instr<asm::PVal>>) {
+    fn cfg_to_asm(&mut self, cfg: mir_def::CFG, instructions: &mut Vec<asm::Instr<asm::PVal>>) {
         let mut worklist = VecDeque::new();
         worklist.push_front(mir_def::BlockID::Start);
 
@@ -79,7 +85,7 @@ impl<'a, T: CPUDefinition> ASMGenerator<'a, T> {
         }
     }
 
-    fn block_to_asm(&self, block: mir_def::BasicBlock, instructions: &mut Vec<asm::Instr<asm::PVal>>) {
+    fn block_to_asm(&mut self, block: mir_def::BasicBlock, instructions: &mut Vec<asm::Instr<asm::PVal>>) {
         let block = if let mir_def::BasicBlock::Generic(block) = block {
             block
         } else { return; };
@@ -144,12 +150,29 @@ impl<'a, T: CPUDefinition> ASMGenerator<'a, T> {
                 }
             },
             mir_def::Val::Var(v) => {
-                self.symbol_table.get(v).unwrap().ty.clone()
+                self.get_ty_from_var(v)
             }
         }
     }
 
-    fn instr_to_asm(&self, instr: mir_def::Instruction, instructions: &mut Vec<asm::Instr<asm::PVal>>) {
+    #[inline]
+    fn get_ty_from_var(&self, var: &Ident) -> mir_def::Type {
+        self.symbol_table.get(var).unwrap().ty.clone()
+    }
+
+    fn gen_tmp_name(&mut self) -> Ident {
+        self.tmp_count += 1;
+        Rc::new(format!(".conv.asm.v.{}.", self.tmp_count))
+    }
+
+    fn make_tmp_var(&mut self, ty: mir_def::Type) -> Ident {
+        let name = self.gen_tmp_name();
+        let attrs = IdentifierAttrs::Local;
+        self.symbol_table.insert(name.clone(), SymbolTableEntry::new(ty, attrs));
+        name
+    }
+
+    fn instr_to_asm(&mut self, instr: mir_def::Instruction, instructions: &mut Vec<asm::Instr<asm::PVal>>) {
         match instr {
             mir_def::Instruction::Binary { op, src1, src2, dst } => {
                 let ty = self.get_ty_from_val(&src1);
@@ -177,6 +200,27 @@ impl<'a, T: CPUDefinition> ASMGenerator<'a, T> {
                 instructions.push(asm::Instr::Unary { unop, src, dst: asm::PVal::Var(dst) });
             },
             mir_def::Instruction::Copy { src, dst } => {
+                if let mir_def::Type::Struct(name) | mir_def::Type::Union(name) = self.get_ty_from_val(&src) {
+                    let entry = self.type_table.entries.get(&name).unwrap();
+
+                    let tmp_src_ptr = self.make_tmp_var(mir_def::Type::Pointer(Box::new(mir_def::Type::Char)));
+                    let src = self.val_to_asm(src, instructions);
+                    instructions.push(asm::Instr::Lea {
+                        src,
+                        dst: asm::PVal::Var(tmp_src_ptr.clone())
+                    });
+
+                    let tmp_dst_ptr = self.make_tmp_var(mir_def::Type::Pointer(Box::new(mir_def::Type::Char)));
+                    instructions.push(asm::Instr::Lea {
+                        src: asm::PVal::Var(dst),
+                        dst: asm::PVal::Var(tmp_dst_ptr.clone())
+                    });
+
+                    self.copy_bytes(tmp_src_ptr, tmp_dst_ptr, entry.size, instructions);
+
+                    return;
+                }
+
                 let src = self.val_to_asm(src, instructions);
                 instructions.push(
                     asm::Instr::Mov { src, dst: asm::PVal::Var(dst) }
@@ -217,7 +261,27 @@ impl<'a, T: CPUDefinition> ASMGenerator<'a, T> {
                 dst.map(|dst|instructions.push(asm::Instr::Mov { src: asm::Reg::pval(1), dst: asm::PVal::Var(dst) }));
             },
             mir_def::Instruction::Load { src_ptr, dst } => {
-                // TODO! use the normal lod instr for this
+                if let mir_def::Type::Struct(name) | mir_def::Type::Union(name) = self.get_ty_from_var(&dst) {
+                    let entry = self.type_table.entries.get(&name).unwrap();
+
+                    let tmp_src_ptr = self.make_tmp_var(mir_def::Type::Pointer(Box::new(mir_def::Type::Char)));
+                    let src = self.val_to_asm(src_ptr, instructions);
+                    instructions.push(asm::Instr::Mov {
+                        src,
+                        dst: asm::PVal::Var(tmp_src_ptr.clone())
+                    });
+
+                    let tmp_dst_ptr = self.make_tmp_var(mir_def::Type::Pointer(Box::new(mir_def::Type::Char)));
+                    instructions.push(asm::Instr::Lea {
+                        src: asm::PVal::Var(dst),
+                        dst: asm::PVal::Var(tmp_dst_ptr.clone())
+                    });
+
+                    self.copy_bytes(tmp_src_ptr, tmp_dst_ptr, entry.size, instructions);
+
+                    return;
+                }
+
                 let src = self.val_to_asm(src_ptr, instructions);
                 instructions.push(asm::Instr::LLod {
                     src,
@@ -226,7 +290,28 @@ impl<'a, T: CPUDefinition> ASMGenerator<'a, T> {
                 })
             },
             mir_def::Instruction::Store { src, dst_ptr } => {
-                // TODO! use the normal str instr for this
+                if let mir_def::Type::Struct(name) | mir_def::Type::Union(name) = self.get_ty_from_val(&src) {
+                    let entry = self.type_table.entries.get(&name).unwrap();
+
+                    let tmp_src_ptr = self.make_tmp_var(mir_def::Type::Pointer(Box::new(mir_def::Type::Char)));
+                    let src = self.val_to_asm(src, instructions);
+                    instructions.push(asm::Instr::Lea {
+                        src,
+                        dst: asm::PVal::Var(tmp_src_ptr.clone())
+                    });
+
+                    let tmp_dst_ptr = self.make_tmp_var(mir_def::Type::Pointer(Box::new(mir_def::Type::Char)));
+                    let dst = self.val_to_asm(dst_ptr, instructions);
+                    instructions.push(asm::Instr::Mov {
+                        src: dst,
+                        dst: asm::PVal::Var(tmp_dst_ptr.clone())
+                    });
+
+                    self.copy_bytes(tmp_src_ptr, tmp_dst_ptr, entry.size, instructions);
+
+                    return;
+                }
+
                 let src = self.val_to_asm(src, instructions);
                 let dst = self.val_to_asm(dst_ptr, instructions);
 
@@ -256,16 +341,78 @@ impl<'a, T: CPUDefinition> ASMGenerator<'a, T> {
                 });
             },
             mir_def::Instruction::CopyToOffset { src, offset, dst } => {
+                if let mir_def::Type::Struct(name) | mir_def::Type::Union(name) = self.get_ty_from_val(&src) {
+                    let entry = self.type_table.entries.get(&name).unwrap();
+
+                    let tmp_src_ptr = self.make_tmp_var(mir_def::Type::Pointer(Box::new(mir_def::Type::Char)));
+                    let src = self.val_to_asm(src, instructions);
+                    instructions.push(asm::Instr::Lea {
+                        src,
+                        dst: asm::PVal::Var(tmp_src_ptr.clone())
+                    });
+
+                    let tmp_dst_ptr = self.make_tmp_var(mir_def::Type::Pointer(Box::new(mir_def::Type::Char)));
+                    instructions.push(asm::Instr::Lea {
+                        src: asm::PVal::Var(dst),
+                        dst: asm::PVal::Var(tmp_dst_ptr.clone())
+                    });
+                    instructions.push(asm::Instr::Binary {
+                        binop: asm::Binop::Add,
+                        src1: asm::PVal::Var(tmp_dst_ptr.clone()),
+                        src2: asm::PVal::Imm(offset as i32),
+                        dst: asm::PVal::Var(tmp_dst_ptr.clone())
+                    });
+
+                    self.copy_bytes(tmp_src_ptr, tmp_dst_ptr, entry.size, instructions);
+
+                    return;
+                }
+
                 let src = self.val_to_asm(src, instructions);
+                let tmp_out = self.make_tmp_var(mir_def::Type::Pointer(Box::new(self.get_ty_from_var(&dst))));
+                let tmp_out = asm::PVal::Var(tmp_out.clone());
 
-                //println!("STR {:?} -> {:?} - {offset}", src, dst);
-
-                instructions.push(asm::Instr::Lea { src: asm::PVal::Var(dst), dst: asm::Reg::pval(7) });
+                instructions.push(asm::Instr::Lea { src: asm::PVal::Var(dst), dst: tmp_out.clone() });
                 instructions.push(asm::Instr::LStr {
                     src,
-                    dst: asm::Reg::pval(7),
+                    dst: tmp_out,
                     offset: asm::PVal::Imm(offset as i32)
-                })
+                });
+            },
+            mir_def::Instruction::CopyFromOffset { src, offset, dst } => {
+                if let mir_def::Type::Struct(name) | mir_def::Type::Union(name) = self.get_ty_from_var(&src) {
+                    let entry = self.type_table.entries.get(&name).unwrap();
+
+                    let tmp_src_ptr = self.make_tmp_var(mir_def::Type::Pointer(Box::new(mir_def::Type::Char)));
+                    let src = asm::PVal::Var(src);
+                    instructions.push(asm::Instr::Lea {
+                        src,
+                        dst: asm::PVal::Var(tmp_src_ptr.clone())
+                    });
+                    instructions.push(asm::Instr::Binary {
+                        binop: asm::Binop::Add,
+                        src1: asm::PVal::Var(tmp_src_ptr.clone()),
+                        src2: asm::PVal::Imm(offset as i32),
+                        dst: asm::PVal::Var(tmp_src_ptr.clone())
+                    });
+
+                    let tmp_dst_ptr = self.make_tmp_var(mir_def::Type::Pointer(Box::new(mir_def::Type::Char)));
+                    instructions.push(asm::Instr::Lea {
+                        src: asm::PVal::Var(dst),
+                        dst: asm::PVal::Var(tmp_dst_ptr.clone())
+                    });
+
+                    self.copy_bytes(tmp_src_ptr, tmp_dst_ptr, entry.size, instructions);
+
+                    return;
+                }
+
+                instructions.push(asm::Instr::Lea { src: asm::PVal::Var(dst), dst: asm::Reg::pval(7) });
+                instructions.push(asm::Instr::LLod {
+                    src: asm::PVal::Var(src),
+                    offset: asm::PVal::Imm(offset as i32),
+                    dst: asm::Reg::pval(7),
+                });
             }
         }
     }
@@ -313,5 +460,30 @@ impl<'a, T: CPUDefinition> ASMGenerator<'a, T> {
             }),
             mir_def::Val::Var(v) => asm::PVal::Var(v)
         }
+    }
+
+    fn copy_bytes(&self, src: Ident, dst: Ident, size: u16, instructions: &mut Vec<asm::Instr<asm::PVal>>) {
+        let src = asm::PVal::Var(src);
+        let dst = asm::PVal::Var(dst);
+        
+        (0..size).for_each(|_| {
+            instructions.push(asm::Instr::Cpy {
+                src: src.clone(),
+                dst: dst.clone()
+            });
+
+            instructions.push(asm::Instr::Binary {
+                binop: asm::Binop::Add,
+                src1: src.clone(),
+                src2: asm::PVal::Imm(1),
+                dst: src.clone()
+            });
+            instructions.push(asm::Instr::Binary {
+                binop: asm::Binop::Add,
+                src1: dst.clone(),
+                src2: asm::PVal::Imm(1),
+                dst: dst.clone()
+            });
+        });
     }
 }

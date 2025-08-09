@@ -22,19 +22,19 @@ fn main() {
     let ast = match ast {
         Ok(ast) => ast,
         Err(e) => {
-            println!("{e}");
+            eprintln!("{e}");
             panic!();
         }
     };
 
-    let (ast, mut symbol_table) = semantic_analysis::analyse(ast);
+    let (ast, mut symbol_table, type_table) = semantic_analysis::analyse(ast);
 
-    let mir = mir::generate_mir(ast, &mut symbol_table);
+    let mir = mir::generate_mir(ast, &mut symbol_table, &type_table);
 
-    //println!("{:#?}", mir);
+    println!("{:#?}", mir);
 
     let backend = urcl_gen::cpu_definitions::IRIS::new();
-    let asm = urcl_gen::mir_to_asm(mir, &symbol_table, &backend);
+    let asm = urcl_gen::mir_to_asm(mir, &mut symbol_table, &type_table, &backend);
 
     write_to_file(&asm.to_string(), "output.urcl");
 }

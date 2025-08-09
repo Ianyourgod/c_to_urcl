@@ -141,6 +141,11 @@ pub enum Instruction {
         offset: i16,
         dst: Ident,
     },
+    CopyFromOffset {
+        src: Ident,
+        offset: i16,
+        dst: Ident,
+    }
 }
 
 #[derive(Debug, Clone)]

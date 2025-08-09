@@ -3,19 +3,21 @@ use std::rc::Rc;
 
 use crate::mir::mir_def;
 use crate::ast::{self, TypedExpr};
-use crate::semantic_analysis::type_check::{IdentifierAttrs, InitialValue, SymbolTable, SymbolTableEntry};
+use crate::semantic_analysis::type_check::{IdentifierAttrs, InitialValue, SymbolTable, SymbolTableEntry, TypeTable};
 
 #[derive(Debug)]
 pub struct Generator<'s> {
     tmp_count: u32,
-    symbol_table: &'s mut SymbolTable
+    symbol_table: &'s mut SymbolTable,
+    type_table: &'s TypeTable,
 }
 
 impl<'s> Generator<'s> {
-    pub fn new(symbol_table: &'s mut SymbolTable) -> Self {
+    pub fn new(symbol_table: &'s mut SymbolTable, type_table: &'s TypeTable) -> Self {
         Self {
             tmp_count: 0,
-            symbol_table
+            symbol_table,
+            type_table
         }
     }
 
@@ -55,8 +57,16 @@ impl<'s> Generator<'s> {
                                 mir_def::Type::UChar => vec![mir_def::StaticInit::UCharInit(0)],
                                 mir_def::Type::Array(ref inner_ty, len) => {
                                     (0..len).into_iter().flat_map(|_| {
-                                        let size = get_size_of_type(inner_ty.as_ref());
+                                        let size = get_size_of_type(inner_ty.as_ref(), self.type_table);
                                         std::iter::repeat(mir_def::StaticInit::ZeroInit).take(size as usize)
+                                    }).collect()
+                                },
+                                mir_def::Type::Union(ref name) |
+                                mir_def::Type::Struct(ref name) => {
+                                    let decl = self.type_table.entries.get(name).unwrap();
+                                    decl.members.values().flat_map(|member| {
+                                        let size = get_size_of_type(&member.ty, self.type_table);
+                                        std::iter::repeat_n(mir_def::StaticInit::ZeroInit, size as usize)
                                     }).collect()
                                 }
                             },
@@ -83,7 +93,7 @@ impl<'s> Generator<'s> {
 
     fn generate_function(&mut self, function: ast::FunctionDecl<TypedExpr>) -> Option<mir_def::Function> {
         let mut tmp_tmp_count = self.tmp_count;
-        let fn_gen = FunctionGenerator::new(&mut tmp_tmp_count);
+        let fn_gen = FunctionGenerator::new(&mut tmp_tmp_count, self.type_table);
 
         let f = fn_gen.generate(self.symbol_table, function);
 
@@ -97,9 +107,13 @@ impl<'s> Generator<'s> {
 enum ExprResult {
     Plain(mir_def::Val),
     DerefedPtr(mir_def::Val),
+    SubObject {
+        base: mir_def::Ident,
+        offset: u16,
+    }
 }
 
-pub fn get_size_of_type(ty: &ast::Type) -> u16 {
+pub fn get_size_of_type(ty: &ast::Type, type_table: &TypeTable) -> u16 {
     match ty {
         &ast::Type::UInt |
         &ast::Type::Pointer(_) |
@@ -108,9 +122,13 @@ pub fn get_size_of_type(ty: &ast::Type) -> u16 {
         &ast::Type::Int => 1,
 
         &ast::Type::Array(ref inner_ty, len) => {
-            let inner_size = get_size_of_type(&inner_ty);
+            let inner_size = get_size_of_type(&inner_ty, type_table);
             inner_size * len
         },
+        &ast::Type::Union(ref name) |
+        &ast::Type::Struct(ref name) => {
+            type_table.entries.get(name).unwrap().size
+        }
 
         &ast::Type::Fn { .. } => unreachable!(),
         &ast::Type::Void => unreachable!()
@@ -121,10 +139,11 @@ struct FunctionGenerator<'l> {
     tmp_count: &'l mut u32,
     cfg: mir_def::CFG,
     current_block: mir_def::GenericBlock,
+    type_table: &'l TypeTable,
 }
 
 impl<'l> FunctionGenerator<'l> {
-    pub fn new(tmp_count: &'l mut u32) -> Self {
+    pub fn new(tmp_count: &'l mut u32, type_table: &'l TypeTable) -> Self {
         let mut cfg = mir_def::CFG {
             blocks: HashMap::new()
         };
@@ -140,6 +159,7 @@ impl<'l> FunctionGenerator<'l> {
             tmp_count,
             cfg,
             current_block: Self::temp_block_ns(id),
+            type_table
         }
     }
 
@@ -185,6 +205,8 @@ impl<'l> FunctionGenerator<'l> {
     fn generate_declaration(&mut self, decl: ast::Declaration<TypedExpr>, symbol_table: &mut SymbolTable) {
         match decl {
             ast::Declaration::Var(v) => self.generate_var_decl(v, symbol_table),
+            ast::Declaration::Struct(_) |
+            ast::Declaration::Union(_) |
             ast::Declaration::Fn(_) => ()
         }
     }
@@ -195,8 +217,8 @@ impl<'l> FunctionGenerator<'l> {
         }
 
         if let Some(init) = decl.expr {
-            match init {
-                ast::Initializer::Single(TypedExpr{expr:ast::DefaultExpr::String(s),ty:_}) => {
+            match (init, &decl.ty) {
+                (ast::Initializer::Single(TypedExpr{expr:ast::DefaultExpr::String(s),ty:_}), _) => {
                     let mut current_offset = 0;
                     s.chars().into_iter().for_each(|c| {
                         let n = c as i16;
@@ -214,19 +236,35 @@ impl<'l> FunctionGenerator<'l> {
                         dst: decl.name.clone()
                     });
                 },
-                ast::Initializer::Single(expr) => {
+                (ast::Initializer::Single(expr), _) => {
                     let v = self.generate_expr_and_convert(expr, symbol_table);
                     self.current_block.instructions.push(mir_def::Instruction::Copy {
                         src: v,
                         dst: decl.name
                     });
                 },
-                ast::Initializer::Compound(inits) => {
+                (ast::Initializer::Compound(inits), ast::Type::Union(_)) => {
+                    // we only do the last one
+                    let expr = self.compound_init_flatten(ast::Initializer::Compound(inits)).pop().unwrap();
+
+                    let val = self.generate_expr_and_convert(expr, symbol_table);
+
+                    let tmp_ptr = self.gen_tmp_var(ast::Type::Pointer(Box::new(decl.ty)), symbol_table);
+
+                    self.current_block.instructions.push(mir_def::Instruction::GetAddress { src: decl.name, dst: tmp_ptr.clone() });
+
+                    self.current_block.instructions.push(mir_def::Instruction::Store {
+                        src: val,
+                        dst_ptr: mir_def::Val::Var(tmp_ptr)
+                    })
+                }
+                (ast::Initializer::Compound(inits), _) => {
                     let exprs = self.compound_init_flatten(ast::Initializer::Compound(inits));
 
                     let mut current_offset = 0;
                     exprs.into_iter().for_each(|expr| {
-                        let size = get_size_of_type(&expr.ty);
+                        // this works for structs since we have no padding
+                        let size = get_size_of_type(&expr.ty, self.type_table);
 
                         let v = self.generate_expr_and_convert(expr, symbol_table);
 
@@ -464,6 +502,17 @@ impl<'l> FunctionGenerator<'l> {
                 });
                 mir_def::Val::Var(dst)
             },
+            ExprResult::SubObject { base, offset } => {
+                let dst = self.gen_tmp_var(ty, symbol_table);
+
+                self.current_block.instructions.push(mir_def::Instruction::CopyFromOffset {
+                    src: base,
+                    offset: offset as i16,
+                    dst: dst.clone()
+                });
+
+                mir_def::Val::Var(dst)
+            }
         }
     }
 
@@ -482,7 +531,7 @@ impl<'l> FunctionGenerator<'l> {
                         );
 
                         writing_to
-                    }
+                    },
                     ExprResult::Plain(dst) => {
                         let dst = match dst {
                             mir_def::Val::Var(v) => v,
@@ -490,6 +539,15 @@ impl<'l> FunctionGenerator<'l> {
                         };
 
                         self.current_block.instructions.push(mir_def::Instruction::Copy { src: val.clone(), dst });
+
+                        ExprResult::Plain(val)
+                    },
+                    ExprResult::SubObject { base, offset } => {
+                        self.current_block.instructions.push(mir_def::Instruction::CopyToOffset {
+                            src: val.clone(),
+                            offset: offset as i16,
+                            dst: base
+                        });
 
                         ExprResult::Plain(val)
                     }
@@ -523,24 +581,35 @@ impl<'l> FunctionGenerator<'l> {
                     dst: tmp_dst.clone()
                 });
 
-                match dst.clone() {
-                    ExprResult::Plain(v) => {
-                        let dst_v = if let mir_def::Val::Var(v) = v { v } else { unreachable!() };
+                let tmp_dst = mir_def::Val::Var(tmp_dst);
 
+                match dst {
+                    ExprResult::Plain(mir_def::Val::Var(v)) => {
                         self.current_block.instructions.push(mir_def::Instruction::Copy {
-                            src: mir_def::Val::Var(tmp_dst),
-                            dst: dst_v
+                            src: tmp_dst.clone(),
+                            dst: v
                         });
 
-                        dst
+                        ExprResult::Plain(tmp_dst)
                     },
+                    ExprResult::Plain(_) => unreachable!(),
+
                     ExprResult::DerefedPtr(v) => {
                         self.current_block.instructions.push(mir_def::Instruction::Store {
-                            src: mir_def::Val::Var(tmp_dst),
+                            src: tmp_dst.clone(),
                             dst_ptr: v
                         });
 
-                        dst
+                        ExprResult::Plain(tmp_dst)
+                    },
+                    ExprResult::SubObject { base, offset } => {
+                        self.current_block.instructions.push(mir_def::Instruction::CopyToOffset {
+                            src: tmp_dst.clone(),
+                            offset: offset as i16,
+                            dst: base
+                        });
+
+                        ExprResult::Plain(tmp_dst)
                     }
                 }
             },
@@ -550,7 +619,7 @@ impl<'l> FunctionGenerator<'l> {
             ast::DefaultExpr::Binary(ast::BinOp::Add, box (left @ TypedExpr{expr:_,ty:ast::Type::Pointer(_)},right)) => {
                 let inner_ty = left.ty.refed_ptr_ty().unwrap();
                 
-                let scale = get_size_of_type(inner_ty) as i16;
+                let scale = get_size_of_type(inner_ty, self.type_table) as i16;
                 let ptr = self.generate_expr_and_convert(left, symbol_table);
                 let idx = self.generate_expr_and_convert(right, symbol_table);
 
@@ -569,7 +638,7 @@ impl<'l> FunctionGenerator<'l> {
             ast::DefaultExpr::Binary(ast::BinOp::Sub, box (left @ TypedExpr{expr:_,ty:ast::Type::Pointer(_)},right @ TypedExpr{expr:_,ty:ast::Type::Pointer(_)})) => {
                 let inner_ty = left.ty.refed_ptr_ty().unwrap();
                 
-                let scale = get_size_of_type(inner_ty) as i16;
+                let scale = get_size_of_type(inner_ty, self.type_table) as i16;
                 let src1 = self.generate_expr_and_convert(left, symbol_table);
                 let src2 = self.generate_expr_and_convert(right, symbol_table);
 
@@ -594,7 +663,7 @@ impl<'l> FunctionGenerator<'l> {
             ast::DefaultExpr::Binary(ast::BinOp::Sub, box (left @ TypedExpr{expr:_,ty:ast::Type::Pointer(_)},right)) => {
                 let inner_ty = left.ty.refed_ptr_ty().unwrap();
                 
-                let scale = -(get_size_of_type(inner_ty) as i16);
+                let scale = -(get_size_of_type(inner_ty, self.type_table) as i16);
                 let ptr = self.generate_expr_and_convert(left, symbol_table);
                 let idx = self.generate_expr_and_convert(right, symbol_table);
 
@@ -768,9 +837,7 @@ impl<'l> FunctionGenerator<'l> {
                 let v = self.generate_expr(inner, symbol_table);
 
                 match v {
-                    ExprResult::Plain(v) => {
-                        let v = if let mir_def::Val::Var(v) = v { v } else { unreachable!() };
-
+                    ExprResult::Plain(mir_def::Val::Var(v)) => {
                         let res = self.gen_tmp_var(ty, symbol_table);
 
                         self.current_block.instructions.push(mir_def::Instruction::GetAddress {
@@ -780,7 +847,26 @@ impl<'l> FunctionGenerator<'l> {
 
                         ExprResult::Plain(mir_def::Val::Var(res))
                     },
-                    ExprResult::DerefedPtr(v) => ExprResult::Plain(v)
+                    ExprResult::Plain(_) => unreachable!(),
+
+                    ExprResult::DerefedPtr(v) => ExprResult::Plain(v),
+                    ExprResult::SubObject { base, offset } => {
+                        let dst = self.gen_tmp_var(ty, symbol_table);
+
+                        self.current_block.instructions.push(mir_def::Instruction::GetAddress {
+                            src: base,
+                            dst: dst.clone()
+                        });
+
+                        self.current_block.instructions.push(mir_def::Instruction::AddPtr {
+                            ptr: mir_def::Val::Var(dst.clone()),
+                            idx: mir_def::Val::Num(mir_def::Const::UInt(offset)),
+                            scale: 1,
+                            dst: dst.clone()
+                        });
+
+                        ExprResult::Plain(mir_def::Val::Var(dst))
+                    },
                 }
             },
             ast::DefaultExpr::Unary(unop, box inner) => {
@@ -897,7 +983,7 @@ impl<'l> FunctionGenerator<'l> {
             ast::DefaultExpr::Subscript(box (left, right)) => {
                 let inner_ty = left.ty.refed_ptr_ty().unwrap();
                 
-                let scale = get_size_of_type(inner_ty) as i16;
+                let scale = get_size_of_type(inner_ty, self.type_table) as i16;
                 let ptr = self.generate_expr_and_convert(left, symbol_table);
                 let idx = self.generate_expr_and_convert(right, symbol_table);
 
@@ -926,11 +1012,62 @@ impl<'l> FunctionGenerator<'l> {
                 ExprResult::Plain(mir_def::Val::Var(str_name))
             },
             ast::DefaultExpr::SizeOfT(ty) => {
-                ExprResult::Plain(mir_def::Val::Num(mir_def::Const::UInt(get_size_of_type(&ty))))
+                ExprResult::Plain(mir_def::Val::Num(mir_def::Const::UInt(get_size_of_type(&ty, self.type_table))))
             },
             ast::DefaultExpr::SizeOf(inner) => {
                 let ty = inner.ty;
-                ExprResult::Plain(mir_def::Val::Num(mir_def::Const::UInt(get_size_of_type(&ty))))
+                ExprResult::Plain(mir_def::Val::Num(mir_def::Const::UInt(get_size_of_type(&ty, self.type_table))))
+            },
+            ast::DefaultExpr::MemberAccess(box inner, item) => {
+                let struct_name = if let ast::Type::Struct(name) | ast::Type::Union(name) = &inner.ty { name } else { unreachable!() };
+                let entry = self.type_table.entries.get(struct_name).unwrap();
+                let member = entry.members.get(&item).unwrap();
+                let offset = member.offset;
+
+                let inner = self.generate_expr(inner, symbol_table);
+
+                match inner {
+                    ExprResult::Plain(mir_def::Val::Var(base)) => ExprResult::SubObject {
+                        base,
+                        offset
+                    },
+                    ExprResult::Plain(_) => unreachable!(),
+                    ExprResult::DerefedPtr(ptr) => {
+                        let dst = self.gen_tmp_var(member.ty.clone(), symbol_table);
+
+                        self.current_block.instructions.push(mir_def::Instruction::AddPtr {
+                            ptr,
+                            idx: mir_def::Val::Num(mir_def::Const::UInt(offset)),
+                            scale: 1,
+                            dst: dst.clone()
+                        });
+
+                        ExprResult::DerefedPtr(mir_def::Val::Var(dst))
+                    },
+                    ExprResult::SubObject { base, offset: old_offset } => ExprResult::SubObject {
+                        base,
+                        offset: old_offset + offset
+                    },
+                }
+            },
+            ast::DefaultExpr::PtrMemberAccess(box inner, item) => {
+                let struct_name = if let ast::Type::Pointer(box ast::Type::Struct(name)) | ast::Type::Pointer(box ast::Type::Union(name)) = &inner.ty { name } else { unreachable!() };
+                let entry = self.type_table.entries.get(struct_name).unwrap();
+                let member = entry.members.get(&item).unwrap();
+                let offset = member.offset;
+
+                let inner = self.generate_expr_and_convert(inner, symbol_table);
+
+                let dst = self.gen_tmp_var(ty, symbol_table);
+
+                self.current_block.instructions.push(mir_def::Instruction::AddPtr {
+                    ptr: inner,
+                    idx: mir_def::Val::Num(mir_def::Const::UInt(offset)),
+                    scale: 1,
+                    dst: dst.clone()
+                });
+
+                ExprResult::DerefedPtr(mir_def::Val::Var(dst))
             }
         }
     }

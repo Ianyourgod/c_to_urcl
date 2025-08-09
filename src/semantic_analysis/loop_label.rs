@@ -19,6 +19,8 @@ impl LoopLabeler {
                 &mut ast::Declaration::Fn(ref mut f) => {
                     self.label_function(f);
                 },
+                &mut ast::Declaration::Struct(_) |
+                &mut ast::Declaration::Union(_) |
                 &mut ast::Declaration::Var(_) => ()
             }
         });
