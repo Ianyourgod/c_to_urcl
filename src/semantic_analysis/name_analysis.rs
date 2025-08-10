@@ -152,7 +152,7 @@ impl Analyzer {
                 if let Some(entry) = context.struct_map.get(&struct_name) {
                     ast::Type::Struct(entry.ident.clone())
                 } else {
-                    panic!("Cannot use undeclared struct type");
+                    panic!("Cannot use undeclared struct type {struct_name}");
                 }
             },
             ast::Type::Union(union_name) => {
@@ -436,6 +436,13 @@ impl Analyzer {
 
                 ast::DefaultExpr::PtrMemberAccess(Box::new(inner), member)
             },
+            ast::DefaultExpr::CompoundLiteral(ty, box init) => {
+                let ty = self.process_type(ty, context);
+
+                let init = self.analyze_init(init, context);
+
+                ast::DefaultExpr::CompoundLiteral(ty, Box::new(init))
+            }
 
             ast::DefaultExpr::String(_)    |
             ast::DefaultExpr::Constant(_) => expr.0,

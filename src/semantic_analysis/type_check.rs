@@ -1224,6 +1224,9 @@ impl TypeChecker {
 
                 TypedExpr::new(DefaultExpr::PtrMemberAccess(Box::new(user_ty_expr), member), member_def.ty.clone())
             },
+            DefaultExpr::CompoundLiteral(ty, box init) => {
+                TypedExpr::new(DefaultExpr::CompoundLiteral(ty.clone(), Box::new(self.typecheck_init(init, ty.clone()))), ty)
+            }
         }
     }
 

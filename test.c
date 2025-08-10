@@ -1,21 +1,16 @@
+struct IStoreStuff {
+    char a;
+};
+
 struct Node {
     int val;
-    struct Node *next;
+    struct IStoreStuff inner;
 };
 
 int main(void) {
-    struct Node end = { .val=8, .next=0 };
-    struct Node mid2 = { .val=6, .next=&end };
-    struct Node mid1 = { .val=4, .next=&mid2 };
-    struct Node start = { .val=2, .next=&mid1 };
+    struct Node n = {0};
 
-    int sum = 0;
-    struct Node* next = &start;
+    n.inner = (struct IStoreStuff){ .a='\n' };
 
-    while (next) {
-        sum += next->val;
-        next = next->next;
-    }
-
-    return sum;
+    return n.inner.a;
 }

@@ -225,6 +225,11 @@ VarDeclWVal: VarDeclaration<Expr> = {
 
 Initializer: Initializer<Expr> = {
     <Expr> => Initializer::Single(<>),
+    <CompoundInit> => <>,
+};
+
+// TODO! make fields and compound the same, so we actually follow the standard
+CompoundInit: Initializer<Expr> = {
     "{" <Comma<Initializer>> "}" => Initializer::Compound(<>),
     "{"  <first:FieldInitItem> <list:("," <FieldInitItem>)*> "}" => {
         let mut list = list; 
@@ -233,7 +238,7 @@ Initializer: Initializer<Expr> = {
 
         Initializer::Fields(l)
     },
-};
+}
 
 FieldInitItem: (Ident, Initializer<Expr>) = {
     "." <n:Ident> "=" <init:Initializer> => (n, init)
@@ -406,6 +411,9 @@ PostfixTerm: Expr = {
             expr = Expr::new(DefaultExpr::PtrMemberAccess(Box::new(expr), arrow));
         }
         expr
+    },
+    "(" <ty:TypeName> ")" <i: CompoundInit> => {
+        Expr::new(DefaultExpr::CompoundLiteral(ty, Box::new(i)))
     },
 };
 

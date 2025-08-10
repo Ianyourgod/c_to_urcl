@@ -1,0 +1,116 @@
+# TODO
+
+- [ ] Language features
+  - [ ] write a preprocessor
+  - [ ] make field and compound inits the same, since thats how it should be
+  - [ ] enums
+  - [ ] switch-case
+  - [ ] increment/decrement
+  - [ ] IRIS only
+    - [ ] floats
+  - [ ] Variable length arguments
+    - [ ] va_list?
+  - [ ] defining a lot of std functions
+    - [ ] Along with this, only include functions that are *USED* (ALL functions, not just std)
+    - [ ] stdlib
+      - [ ] malloc
+      - [ ] free
+      - [ ] realloc
+      - [ ] qsort
+      - [ ] rand
+      - [ ] rand_r
+      - [ ] srand
+    - [ ] string
+      - [ ] strcmp
+      - [ ] strncmp
+      - [ ] strlen
+      - [ ] strcpy
+      - [ ] strncpy
+      - [ ] strcat
+      - [ ] strncat
+      - [ ] memchr
+      - [ ] memcmp
+      - [ ] memcpy
+      - [ ] memmove
+      - [ ] memset
+      - [ ] strchr
+      - [ ] strcspn
+      - [ ] strerror
+      - [ ] strpbrk
+      - [ ] strrchr
+      - [ ] strspn
+      - [ ] strstr
+      - [ ] strtok
+      - [ ] strtok_r
+    - [ ] stdio
+      - [ ] getchar
+      - [ ] gets
+      - [ ] perror
+      - [ ] printf
+      - [ ] putchar
+      - [ ] puts
+      - [ ] scanf
+      - [ ] sprintf
+      - [ ] snprintf
+      - [ ] sscanf
+      - [ ] ***IF*** va_list is implemented
+        - [ ] vprintf
+        - [ ] vscanf
+        - [ ] vsprintf
+        - [ ] vsnprintf
+    - [ ] math (ONLY FOR WHEN IRIS FLOATS ARE IMPLEMENTED)
+      - [ ] acos
+      - [ ] asin
+      - [ ] atan
+      - [ ] atan2
+      - [ ] ceil
+      - [ ] cos
+      - [ ] cosh
+      - [ ] erf
+      - [ ] erfc
+      - [ ] exp
+      - [ ] fabs
+      - [ ] floor
+      - [ ] fmod
+      - [ ] frexp
+      - [ ] gamma
+      - [ ] hypot
+      - [ ] j0
+      - [ ] j1
+      - [ ] jn
+      - [ ] ldexp
+      - [ ] log
+      - [ ] log10
+      - [ ] modf
+      - [ ] nextafter
+      - [ ] pow
+      - [ ] sin
+      - [ ] sinh
+      - [ ] sqrt
+      - [ ] tan
+      - [ ] tanh
+
+- [ ] don't use indexmap crate, just make our own
+
+- [ ] Make the calling convention better
+  - [ ] Use registers
+  - [ ] Actually implement passing around raw structs/unions
+
+- [ ] Add more per-cpu things
+  - [ ] Perhaps a custom ABI per cpu?
+  - [ ] Specifiying register info
+    - [x] SP
+    - [x] BP
+    - [ ] Temporary registers (minimum of 3)
+    - [ ] everything else
+- [ ] optimizations
+  - [ ] MIR optimizations
+    - [ ] Constant folding
+    - [ ] Unreachable code KILLING!!!
+    - [ ] Copy propagation
+    - [ ] Dead store elimination
+      - [ ] maybe add volitile SCS too?
+  - [ ] Assembly optimizations
+    - [ ] Register allocation
+    - [ ] During MIR->ASM, try and find an optimal order for the blocks
+    - [ ] Basically reimplement ModPunchTree's Optimizer V2 (on Vals, not PVals)

@@ -14,44 +14,28 @@ OUT %NUMB $2
 HLT
 .main
 	.lbl.gen.1.
-	__LEA .conv.asm.v.1. .na.gen.end.2
-	LSTR .conv.asm.v.1. 0 8
-	MOV tmp.2. 0
-	__LEA .conv.asm.v.2. .na.gen.end.2
-	LSTR .conv.asm.v.2. 1 tmp.2.
-	__LEA .conv.asm.v.3. .na.gen.mid2.3
-	LSTR .conv.asm.v.3. 0 6
-	__LEA tmp.3. .na.gen.end.2
-	__LEA .conv.asm.v.4. .na.gen.mid2.3
-	LSTR .conv.asm.v.4. 1 tmp.3.
-	__LEA .conv.asm.v.5. .na.gen.mid1.4
-	LSTR .conv.asm.v.5. 0 4
-	__LEA tmp.4. .na.gen.mid2.3
-	__LEA .conv.asm.v.6. .na.gen.mid1.4
-	LSTR .conv.asm.v.6. 1 tmp.4.
-	__LEA .conv.asm.v.7. .na.gen.start.5
-	LSTR .conv.asm.v.7. 0 2
-	__LEA tmp.5. .na.gen.mid1.4
-	__LEA .conv.asm.v.8. .na.gen.start.5
-	LSTR .conv.asm.v.8. 1 tmp.5.
-	MOV .na.gen.sum.6 0
-	__LEA tmp.6. .na.gen.start.5
-	MOV .na.gen.next.7 tmp.6.
-	JMP .lbl.lcont1.
-	.lbl.lcont1.
-	BRE .lbl.lbreak.1. .na.gen.next.7 0
-	JMP .lbl.gen.7.
-	.lbl.lbreak.1.
-	MOV $1 .na.gen.sum.6
+	__LEA .conv.asm.v.1. .na.gen.n.3
+	LSTR .conv.asm.v.1. 0 0
+	__LEA .conv.asm.v.2. .na.gen.n.3
+	LSTR .conv.asm.v.2. 1 0
+	MOV tmp.3. 10
+	__LEA .conv.asm.v.3. tmp.2.
+	LSTR .conv.asm.v.3. 0 tmp.3.
+	__LEA .conv.asm.v.4. tmp.2.
+	__LEA .conv.asm.v.5. .na.gen.n.3
+	ADD .conv.asm.v.5. .conv.asm.v.5. 1
+	CPY .conv.asm.v.5. .conv.asm.v.4.
+	ADD .conv.asm.v.4. .conv.asm.v.4. 1
+	ADD .conv.asm.v.5. .conv.asm.v.5. 1
+	__LEA .conv.asm.v.6. .na.gen.n.3
+	ADD .conv.asm.v.6. .conv.asm.v.6. 1
+	__LEA .conv.asm.v.7. tmp.4.
+	CPY .conv.asm.v.7. .conv.asm.v.6.
+	ADD .conv.asm.v.6. .conv.asm.v.6. 1
+	ADD .conv.asm.v.7. .conv.asm.v.7. 1
+	CPY .conv.asm.v.7. .conv.asm.v.6.
+	ADD .conv.asm.v.6. .conv.asm.v.6. 1
+	ADD .conv.asm.v.7. .conv.asm.v.7. 1
+	MOV tmp.5. tmp.4.
+	MOV $1 tmp.5.
 	RET
-	.lbl.gen.7.
-	MLT tmp.8. 0 1
-	ADD tmp.8. .na.gen.next.7 tmp.8.
-	LLOD tmp.9. tmp.8. 0
-	ADD tmp.10. .na.gen.sum.6 tmp.9.
-	MOV .na.gen.sum.6 tmp.10.
-	MLT tmp.11. 1 1
-	ADD tmp.11. .na.gen.next.7 tmp.11.
-	LLOD tmp.12. tmp.11. 0
-	MOV .na.gen.next.7 tmp.12.
-	JMP .lbl.lcont1.

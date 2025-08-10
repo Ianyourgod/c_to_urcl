@@ -211,76 +211,80 @@ impl<'l> FunctionGenerator<'l> {
         }
     }
 
+    fn generate_initializer(&mut self, write_to: mir_def::Ident, init: ast::Initializer<TypedExpr>, target_type: ast::Type, symbol_table: &mut SymbolTable) {
+        match (init, &target_type) {
+            (ast::Initializer::Fields(_), _) => unreachable!(),
+
+
+            (ast::Initializer::Single(TypedExpr{expr:ast::DefaultExpr::String(s),ty:_}), _) => {
+                let mut current_offset = 0;
+                s.chars().into_iter().for_each(|c| {
+                    let n = c as i16;
+                    self.current_block.instructions.push(mir_def::Instruction::CopyToOffset {
+                        src: mir_def::Val::Num(mir_def::Const::Char(n)),
+                        offset: current_offset,
+                        dst: write_to.clone()
+                    });
+
+                    current_offset += 1;
+                });
+                self.current_block.instructions.push(mir_def::Instruction::CopyToOffset {
+                    src: mir_def::Val::Num(mir_def::Const::Char(0)),
+                    offset: current_offset,
+                    dst: write_to.clone()
+                });
+            },
+            (ast::Initializer::Single(expr), _) => {
+                let v = self.generate_expr_and_convert(expr, symbol_table);
+                self.current_block.instructions.push(mir_def::Instruction::Copy {
+                    src: v,
+                    dst: write_to
+                });
+            },
+            (ast::Initializer::Compound(inits), ast::Type::Union(_)) => {
+                // we only do the last one
+                let expr = self.compound_init_flatten(ast::Initializer::Compound(inits)).pop().unwrap();
+
+                let val = self.generate_expr_and_convert(expr, symbol_table);
+
+                let tmp_ptr = self.gen_tmp_var(ast::Type::Pointer(Box::new(target_type)), symbol_table);
+
+                self.current_block.instructions.push(mir_def::Instruction::GetAddress { src: write_to, dst: tmp_ptr.clone() });
+
+                self.current_block.instructions.push(mir_def::Instruction::Store {
+                    src: val,
+                    dst_ptr: mir_def::Val::Var(tmp_ptr)
+                })
+            }
+            (ast::Initializer::Compound(inits), _) => {
+                let exprs = self.compound_init_flatten(ast::Initializer::Compound(inits));
+
+                let mut current_offset = 0;
+                exprs.into_iter().for_each(|expr| {
+                    // this works for structs since we have no padding
+                    let size = get_size_of_type(&expr.ty, self.type_table);
+
+                    let v = self.generate_expr_and_convert(expr, symbol_table);
+
+                    self.current_block.instructions.push(mir_def::Instruction::CopyToOffset {
+                        src: v,
+                        offset: current_offset,
+                        dst: write_to.clone()
+                    });
+
+                    current_offset += size as i16;
+                });
+            } 
+        }
+    }
+
     fn generate_var_decl(&mut self, decl: ast::VarDeclaration<TypedExpr>, symbol_table: &mut SymbolTable) {
         if decl.storage_class.is_some() {
             return;
         }
 
         if let Some(init) = decl.expr {
-            match (init, &decl.ty) {
-                (ast::Initializer::Fields(_), _) => unreachable!(),
-
-
-                (ast::Initializer::Single(TypedExpr{expr:ast::DefaultExpr::String(s),ty:_}), _) => {
-                    let mut current_offset = 0;
-                    s.chars().into_iter().for_each(|c| {
-                        let n = c as i16;
-                        self.current_block.instructions.push(mir_def::Instruction::CopyToOffset {
-                            src: mir_def::Val::Num(mir_def::Const::Char(n)),
-                            offset: current_offset,
-                            dst: decl.name.clone()
-                        });
-
-                        current_offset += 1;
-                    });
-                    self.current_block.instructions.push(mir_def::Instruction::CopyToOffset {
-                        src: mir_def::Val::Num(mir_def::Const::Char(0)),
-                        offset: current_offset,
-                        dst: decl.name.clone()
-                    });
-                },
-                (ast::Initializer::Single(expr), _) => {
-                    let v = self.generate_expr_and_convert(expr, symbol_table);
-                    self.current_block.instructions.push(mir_def::Instruction::Copy {
-                        src: v,
-                        dst: decl.name
-                    });
-                },
-                (ast::Initializer::Compound(inits), ast::Type::Union(_)) => {
-                    // we only do the last one
-                    let expr = self.compound_init_flatten(ast::Initializer::Compound(inits)).pop().unwrap();
-
-                    let val = self.generate_expr_and_convert(expr, symbol_table);
-
-                    let tmp_ptr = self.gen_tmp_var(ast::Type::Pointer(Box::new(decl.ty)), symbol_table);
-
-                    self.current_block.instructions.push(mir_def::Instruction::GetAddress { src: decl.name, dst: tmp_ptr.clone() });
-
-                    self.current_block.instructions.push(mir_def::Instruction::Store {
-                        src: val,
-                        dst_ptr: mir_def::Val::Var(tmp_ptr)
-                    })
-                }
-                (ast::Initializer::Compound(inits), _) => {
-                    let exprs = self.compound_init_flatten(ast::Initializer::Compound(inits));
-
-                    let mut current_offset = 0;
-                    exprs.into_iter().for_each(|expr| {
-                        // this works for structs since we have no padding
-                        let size = get_size_of_type(&expr.ty, self.type_table);
-
-                        let v = self.generate_expr_and_convert(expr, symbol_table);
-
-                        self.current_block.instructions.push(mir_def::Instruction::CopyToOffset {
-                            src: v,
-                            offset: current_offset,
-                            dst: decl.name.clone()
-                        });
-
-                        current_offset += size as i16;
-                    });
-                } 
-            }
+            self.generate_initializer(decl.name, init, decl.ty, symbol_table);
         }
     }
 
@@ -1073,6 +1077,13 @@ impl<'l> FunctionGenerator<'l> {
                 });
 
                 ExprResult::DerefedPtr(mir_def::Val::Var(dst))
+            },
+            ast::DefaultExpr::CompoundLiteral(ty, box init) => {
+                let dst = self.gen_tmp_var(ty.clone(), symbol_table);
+                
+                self.generate_initializer(dst.clone(), init, ty, symbol_table);
+
+                ExprResult::Plain(mir_def::Val::Var(dst))
             }
         }
     }

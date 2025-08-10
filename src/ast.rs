@@ -190,6 +190,7 @@ pub enum DefaultExpr<E> {
     SizeOfT(Type),
     MemberAccess(Box<E>, Ident),
     PtrMemberAccess(Box<E>, Ident),
+    CompoundLiteral(Type, Box<Initializer<E>>),
 }
 
 #[derive(Debug, Clone)]
