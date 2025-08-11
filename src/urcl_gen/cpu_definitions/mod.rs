@@ -26,7 +26,7 @@ impl HeaderInfo {
             bits: 16,
             min_reg: 26,
             min_heap: 4096,
-            min_stack: 16, // idk the stack size of iris... TODO! find the actual stack size
+            min_stack: 256, // idk the stack size of iris... TODO! find the actual stack size
             von_neumann: false // idk if iris can do von neumann but we're just gonna put this as false for now
         }
     }

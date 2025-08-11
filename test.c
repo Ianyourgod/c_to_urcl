@@ -1,28 +1,17 @@
-enum Greek {
-    ALPHA,
-    SIGMA,
-    BETA
+struct Goon {
+    int a;
+    int b;
+    int c;
+    int d;
 };
 
+int get_c(int a, int b, int c, int d, struct Goon g) {
+    return g.c;
+}
+
 int main(void) {
-    enum Greek item = SIGMA;
+    struct Goon g = { 0 };
+    g.c = 50;
 
-    int result = 0;
-
-    switch (item) {
-        case ALPHA:
-            result = 23;
-            break;
-        case SIGMA:
-            result = 44;
-            break;
-        case BETA:
-            result = 99;
-            break;
-        default:
-            result = -1;
-            break;
-    }
-
-    return result;
+    return get_c(0,0,0,0,g);
 }

@@ -260,6 +260,8 @@ impl Analyzer {
                 panic!("Cannot declare parameter with same name, {param}");
             }
 
+            let ty = self.process_type(ty, context);
+
             (ty, self.add_new_name(param, context, false))
         }).collect();
 

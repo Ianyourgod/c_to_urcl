@@ -2,7 +2,7 @@ BITS == 16
 MINREG 26
 MINHEAP 4096
 RUN ROM
-MINSTACK 16
+MINSTACK 256
 
 MOV $2 SP
 CAL .main
@@ -12,29 +12,57 @@ OUT %TEXT 45
 ABS $2 $1
 OUT %NUMB $2
 HLT
-.main
+.get_c
+	MOV .na.gen.a.2 $3
+	MOV .na.gen.b.3 $4
+	MOV .na.gen.c.4 $5
+	MOV .na.gen.d.5 $6
+	ADD .conv.asm.v.1. 2 $2
+	__LEA .conv.asm.v.2. .na.gen.g.6
+	CPY .conv.asm.v.2. .conv.asm.v.1.
+	ADD .conv.asm.v.1. .conv.asm.v.1. 1
+	ADD .conv.asm.v.2. .conv.asm.v.2. 1
+	CPY .conv.asm.v.2. .conv.asm.v.1.
+	ADD .conv.asm.v.1. .conv.asm.v.1. 1
+	ADD .conv.asm.v.2. .conv.asm.v.2. 1
+	CPY .conv.asm.v.2. .conv.asm.v.1.
+	ADD .conv.asm.v.1. .conv.asm.v.1. 1
+	ADD .conv.asm.v.2. .conv.asm.v.2. 1
+	CPY .conv.asm.v.2. .conv.asm.v.1.
+	ADD .conv.asm.v.1. .conv.asm.v.1. 1
+	ADD .conv.asm.v.2. .conv.asm.v.2. 1
 	.lbl.gen.1.
-	MOV .na.gen.item.5 1
-	MOV .na.gen.result.6 0
-	BRE .lbl.lcont5. .na.gen.item.5 2
-	JMP .lbl.gen.2.
-	.lbl.lcont5.
-	MOV .na.gen.result.6 99
-	JMP .lbl.lbreak.2.
-	.lbl.gen.2.
-	BRE .lbl.lcont3. .na.gen.item.5 0
-	JMP .lbl.gen.3.
-	.lbl.lbreak.2.
-	MOV $1 .na.gen.result.6
+	__LEA $8 .na.gen.g.6
+	LLOD $8 $8 2
+	MOV tmp.2. $8
+	MOV $1 tmp.2.
 	RET
-	.lbl.lcont3.
-	MOV .na.gen.result.6 23
-	JMP .lbl.lbreak.2.
-	.lbl.gen.3.
-	BRE .lbl.lcont4. .na.gen.item.5 1
-	JMP .lbl.gen.4.
-	.lbl.lcont4.
-	MOV .na.gen.result.6 44
-	JMP .lbl.lbreak.2.
-	.lbl.gen.4.
-	JMP .lbl.lcont3.
+.main
+	.lbl.gen.5.
+	__LEA .conv.asm.v.3. .na.gen.g.7
+	LSTR .conv.asm.v.3. 0 0
+	__LEA .conv.asm.v.4. .na.gen.g.7
+	LSTR .conv.asm.v.4. 1 0
+	__LEA .conv.asm.v.5. .na.gen.g.7
+	LSTR .conv.asm.v.5. 2 0
+	__LEA .conv.asm.v.6. .na.gen.g.7
+	LSTR .conv.asm.v.6. 3 0
+	__LEA .conv.asm.v.7. .na.gen.g.7
+	LSTR .conv.asm.v.7. 2 50
+	MOV $3 0
+	MOV $4 0
+	MOV $5 0
+	MOV $6 0
+	__LEA $8 .na.gen.g.7
+	LLOD $7 $8 3
+	PSH $7
+	LLOD $7 $8 2
+	PSH $7
+	LLOD $7 $8 1
+	PSH $7
+	LLOD $7 $8 0
+	PSH $7
+	CAL .get_c
+	MOV tmp.6. $1
+	MOV $1 tmp.6.
+	RET

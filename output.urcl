@@ -2,7 +2,7 @@ BITS == 16
 MINREG 26
 MINHEAP 4096
 RUN ROM
-MINSTACK 16
+MINSTACK 256
 
 MOV $2 SP
 CAL .main
@@ -12,68 +12,163 @@ OUT %TEXT 45
 ABS $2 $1
 OUT %NUMB $2
 HLT
-.main
+.get_c
 	PSH $2
 	MOV $2 SP
-	SUB SP SP 2
+	SUB SP SP 11
+	// MOV .na.gen.a.2 $3
+	MOV $7 $3
+	LSTR $2 -1 $7
+	// MOV .na.gen.b.3 $4
+	MOV $7 $4
+	LSTR $2 -2 $7
+	// MOV .na.gen.c.4 $5
+	MOV $7 $5
+	LSTR $2 -3 $7
+	// MOV .na.gen.d.5 $6
+	MOV $7 $6
+	LSTR $2 -4 $7
+	// ADD .conv.asm.v.1. 2 $2
+	ADD $7 2 $2
+	LSTR $2 -5 $7
+	// __LEA .conv.asm.v.2. .na.gen.g.6
+	SUB $7 $2 10
+	LSTR $2 -6 $7
+	// CPY .conv.asm.v.2. .conv.asm.v.1.
+	LLOD $7 $2 -5
+	LLOD $8 $2 -6
+	CPY $8 $7
+	// ADD .conv.asm.v.1. .conv.asm.v.1. 1
+	LLOD $7 $2 -5
+	ADD $7 $7 1
+	LSTR $2 -5 $7
+	// ADD .conv.asm.v.2. .conv.asm.v.2. 1
+	LLOD $7 $2 -6
+	ADD $7 $7 1
+	LSTR $2 -6 $7
+	// CPY .conv.asm.v.2. .conv.asm.v.1.
+	LLOD $7 $2 -5
+	LLOD $8 $2 -6
+	CPY $8 $7
+	// ADD .conv.asm.v.1. .conv.asm.v.1. 1
+	LLOD $7 $2 -5
+	ADD $7 $7 1
+	LSTR $2 -5 $7
+	// ADD .conv.asm.v.2. .conv.asm.v.2. 1
+	LLOD $7 $2 -6
+	ADD $7 $7 1
+	LSTR $2 -6 $7
+	// CPY .conv.asm.v.2. .conv.asm.v.1.
+	LLOD $7 $2 -5
+	LLOD $8 $2 -6
+	CPY $8 $7
+	// ADD .conv.asm.v.1. .conv.asm.v.1. 1
+	LLOD $7 $2 -5
+	ADD $7 $7 1
+	LSTR $2 -5 $7
+	// ADD .conv.asm.v.2. .conv.asm.v.2. 1
+	LLOD $7 $2 -6
+	ADD $7 $7 1
+	LSTR $2 -6 $7
+	// CPY .conv.asm.v.2. .conv.asm.v.1.
+	LLOD $7 $2 -5
+	LLOD $8 $2 -6
+	CPY $8 $7
+	// ADD .conv.asm.v.1. .conv.asm.v.1. 1
+	LLOD $7 $2 -5
+	ADD $7 $7 1
+	LSTR $2 -5 $7
+	// ADD .conv.asm.v.2. .conv.asm.v.2. 1
+	LLOD $7 $2 -6
+	ADD $7 $7 1
+	LSTR $2 -6 $7
 	// .lbl.gen.1.
 	.lbl.gen.1.
-	// MOV .na.gen.item.5 1
-	MOV $7 1
-	LSTR $2 -1 $7
-	// MOV .na.gen.result.6 0
-	MOV $7 0
-	LSTR $2 -2 $7
-	// BRE .lbl.lcont5. .na.gen.item.5 2
-	LLOD $7 $2 -1
-	BRE .lbl.lcont5. $7 2
-	// JMP .lbl.gen.2.
-	JMP .lbl.gen.2.
-	// .lbl.lcont5.
-	.lbl.lcont5.
-	// MOV .na.gen.result.6 99
-	MOV $7 99
-	LSTR $2 -2 $7
-	// JMP .lbl.lbreak.2.
-	JMP .lbl.lbreak.2.
-	// .lbl.gen.2.
-	.lbl.gen.2.
-	// BRE .lbl.lcont3. .na.gen.item.5 0
-	LLOD $7 $2 -1
-	BRE .lbl.lcont3. $7 0
-	// JMP .lbl.gen.3.
-	JMP .lbl.gen.3.
-	// .lbl.lbreak.2.
-	.lbl.lbreak.2.
-	// MOV $1 .na.gen.result.6
-	LLOD $7 $2 -2
+	// __LEA $8 .na.gen.g.6
+	SUB $8 $2 10
+	// LLOD $8 $8 2
+	LLOD $8 $8 2
+	// MOV tmp.2. $8
+	MOV $7 $8
+	LSTR $2 -11 $7
+	// MOV $1 tmp.2.
+	LLOD $7 $2 -11
 	MOV $1 $7
 	// RET
 	MOV SP $2
 	POP $2
 	RET
-	// .lbl.lcont3.
-	.lbl.lcont3.
-	// MOV .na.gen.result.6 23
-	MOV $7 23
-	LSTR $2 -2 $7
-	// JMP .lbl.lbreak.2.
-	JMP .lbl.lbreak.2.
-	// .lbl.gen.3.
-	.lbl.gen.3.
-	// BRE .lbl.lcont4. .na.gen.item.5 1
-	LLOD $7 $2 -1
-	BRE .lbl.lcont4. $7 1
-	// JMP .lbl.gen.4.
-	JMP .lbl.gen.4.
-	// .lbl.lcont4.
-	.lbl.lcont4.
-	// MOV .na.gen.result.6 44
-	MOV $7 44
-	LSTR $2 -2 $7
-	// JMP .lbl.lbreak.2.
-	JMP .lbl.lbreak.2.
-	// .lbl.gen.4.
-	.lbl.gen.4.
-	// JMP .lbl.lcont3.
-	JMP .lbl.lcont3.
+.main
+	PSH $2
+	MOV $2 SP
+	SUB SP SP 10
+	// .lbl.gen.5.
+	.lbl.gen.5.
+	// __LEA .conv.asm.v.3. .na.gen.g.7
+	SUB $7 $2 5
+	LSTR $2 -1 $7
+	// LSTR .conv.asm.v.3. 0 0
+	LLOD $9 $2 -1
+	LSTR $9 0 0
+	// __LEA .conv.asm.v.4. .na.gen.g.7
+	SUB $7 $2 5
+	LSTR $2 -6 $7
+	// LSTR .conv.asm.v.4. 1 0
+	LLOD $9 $2 -6
+	LSTR $9 1 0
+	// __LEA .conv.asm.v.5. .na.gen.g.7
+	SUB $7 $2 5
+	LSTR $2 -7 $7
+	// LSTR .conv.asm.v.5. 2 0
+	LLOD $9 $2 -7
+	LSTR $9 2 0
+	// __LEA .conv.asm.v.6. .na.gen.g.7
+	SUB $7 $2 5
+	LSTR $2 -8 $7
+	// LSTR .conv.asm.v.6. 3 0
+	LLOD $9 $2 -8
+	LSTR $9 3 0
+	// __LEA .conv.asm.v.7. .na.gen.g.7
+	SUB $7 $2 5
+	LSTR $2 -9 $7
+	// LSTR .conv.asm.v.7. 2 50
+	LLOD $9 $2 -9
+	LSTR $9 2 50
+	// MOV $3 0
+	MOV $3 0
+	// MOV $4 0
+	MOV $4 0
+	// MOV $5 0
+	MOV $5 0
+	// MOV $6 0
+	MOV $6 0
+	// __LEA $8 .na.gen.g.7
+	SUB $8 $2 5
+	// LLOD $7 $8 3
+	LLOD $7 $8 3
+	// PSH $7
+	PSH $7
+	// LLOD $7 $8 2
+	LLOD $7 $8 2
+	// PSH $7
+	PSH $7
+	// LLOD $7 $8 1
+	LLOD $7 $8 1
+	// PSH $7
+	PSH $7
+	// LLOD $7 $8 0
+	LLOD $7 $8 0
+	// PSH $7
+	PSH $7
+	// CAL .get_c
+	CAL .get_c
+	// MOV tmp.6. $1
+	MOV $7 $1
+	LSTR $2 -10 $7
+	// MOV $1 tmp.6.
+	LLOD $7 $2 -10
+	MOV $1 $7
+	// RET
+	MOV SP $2
+	POP $2
+	RET

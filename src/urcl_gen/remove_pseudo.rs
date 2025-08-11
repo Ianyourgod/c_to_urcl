@@ -214,7 +214,7 @@ impl<'a, T: CPUDefinition> RemovePseudo<'a, T> {
                             VarPosition::Label(v)
                         }
                         IdentifierAttrs::Fn { .. } |
-                        IdentifierAttrs::Local => unreachable!()
+                        IdentifierAttrs::Local => unreachable!("{:?}", v)
                     }
                 });
 
