@@ -14,8 +14,27 @@ OUT %NUMB $2
 HLT
 .main
 	.lbl.gen.1.
-	MOV .na.gen.item.5 2
-	MOV tmp.2. 2
-	ADD tmp.3. .na.gen.item.5 tmp.2.
-	MOV $1 tmp.3.
+	MOV .na.gen.item.5 1
+	MOV .na.gen.result.6 0
+	BRE .lbl.lcont5. .na.gen.item.5 2
+	JMP .lbl.gen.2.
+	.lbl.lcont5.
+	MOV .na.gen.result.6 99
+	JMP .lbl.lbreak.2.
+	.lbl.gen.2.
+	BRE .lbl.lcont3. .na.gen.item.5 0
+	JMP .lbl.gen.3.
+	.lbl.lbreak.2.
+	MOV $1 .na.gen.result.6
 	RET
+	.lbl.lcont3.
+	MOV .na.gen.result.6 23
+	JMP .lbl.lbreak.2.
+	.lbl.gen.3.
+	BRE .lbl.lcont4. .na.gen.item.5 1
+	JMP .lbl.gen.4.
+	.lbl.lcont4.
+	MOV .na.gen.result.6 44
+	JMP .lbl.lbreak.2.
+	.lbl.gen.4.
+	JMP .lbl.lcont3.

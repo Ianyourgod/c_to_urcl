@@ -3,21 +3,23 @@ use std::rc::Rc;
 
 use crate::mir::mir_def;
 use crate::ast::{self, TypedExpr};
-use crate::semantic_analysis::type_check::{IdentifierAttrs, InitialValue, SymbolTable, SymbolTableEntry, TypeTable};
+use crate::semantic_analysis::type_check::{IdentifierAttrs, InitialValue, SwitchCases, SymbolTable, SymbolTableEntry, TypeTable};
 
 #[derive(Debug)]
 pub struct Generator<'s> {
     tmp_count: u32,
     symbol_table: &'s mut SymbolTable,
     type_table: &'s TypeTable,
+    switch_cases: SwitchCases,
 }
 
 impl<'s> Generator<'s> {
-    pub fn new(symbol_table: &'s mut SymbolTable, type_table: &'s TypeTable) -> Self {
+    pub fn new(symbol_table: &'s mut SymbolTable, type_table: &'s TypeTable, switch_cases: SwitchCases) -> Self {
         Self {
             tmp_count: 0,
             symbol_table,
-            type_table
+            type_table,
+            switch_cases,
         }
     }
 
@@ -94,7 +96,7 @@ impl<'s> Generator<'s> {
 
     fn generate_function(&mut self, function: ast::FunctionDecl<TypedExpr>) -> Option<mir_def::Function> {
         let mut tmp_tmp_count = self.tmp_count;
-        let fn_gen = FunctionGenerator::new(&mut tmp_tmp_count, self.type_table);
+        let fn_gen = FunctionGenerator::new(&mut tmp_tmp_count, self.type_table, &mut self.switch_cases);
 
         let f = fn_gen.generate(self.symbol_table, function);
 
@@ -119,10 +121,11 @@ struct FunctionGenerator<'l> {
     cfg: mir_def::CFG,
     current_block: mir_def::GenericBlock,
     type_table: &'l TypeTable,
+    switch_cases: &'l mut SwitchCases,
 }
 
 impl<'l> FunctionGenerator<'l> {
-    pub fn new(tmp_count: &'l mut u32, type_table: &'l TypeTable) -> Self {
+    pub fn new(tmp_count: &'l mut u32, type_table: &'l TypeTable, switch_cases: &'l mut SwitchCases) -> Self {
         let mut cfg = mir_def::CFG {
             blocks: HashMap::new()
         };
@@ -138,7 +141,8 @@ impl<'l> FunctionGenerator<'l> {
             tmp_count,
             cfg,
             current_block: Self::temp_block_ns(id),
-            type_table
+            type_table,
+            switch_cases,
         }
     }
 
@@ -417,7 +421,56 @@ impl<'l> FunctionGenerator<'l> {
                 self.current_block.terminator = mir_def::Terminator::Jump { target: start_label };
 
                 self.new_block_w_id(break_label);
+            },
+            ast::Statement::Switch(expr, block, label) => {
+                let sc = self.switch_cases.remove(&label).unwrap();
+
+                let val = self.generate_expr_and_convert(expr, symbol_table);
+
+                let break_label = self.gen_loop_block_id(label, true);
+
+                for (num, label) in sc.0 {
+                    let label = self.gen_loop_block_id(label, false);
+
+                    let next = self.gen_block_id();
+
+                    self.current_block.terminator = mir_def::Terminator::JumpCond {
+                        target: label,
+                        fail: next,
+                        src1: val.clone(),
+                        src2: mir_def::Val::Num(num),
+                        cond: mir_def::Cond::Equal
+                    };
+
+                    self.new_block_w_id(next);
+                }
+
+                let default_label = sc.1.map(|l|self.gen_loop_block_id(l, false));
+
+                self.current_block.terminator = mir_def::Terminator::Jump { target: default_label.unwrap_or(break_label) };
+
+                self.generate_block(block, symbol_table);
+
+                self.current_block.terminator = mir_def::Terminator::Jump { target: break_label };
+
+                self.new_block_w_id(break_label);
+            },
+            ast::Statement::Case(_, _, label) => {
+                let label = self.gen_loop_block_id(label, false);
+
+                self.current_block.terminator = mir_def::Terminator::Jump { target: label };
+
+                self.new_block_w_id(label);
+            },
+            ast::Statement::Default(_, label) => {
+                let label = self.gen_loop_block_id(label, false);
+
+                self.current_block.terminator = mir_def::Terminator::Jump { target: label };
+
+                self.new_block_w_id(label);
             }
+
+
             ast::Statement::Break(label) => {
                 let label = self.gen_loop_block_id(label, true);
                 self.current_block.terminator = mir_def::Terminator::Jump { target: label };

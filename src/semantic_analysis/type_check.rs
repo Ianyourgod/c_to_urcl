@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::fmt::Display;
 use std::rc::Rc;
 
@@ -134,9 +134,12 @@ impl SymbolTable {
     }
 }
 
+pub type SwitchCases = HashMap<u32, (HashSet<(ast::Const, u32)>, Option<u32>)>;
+
 pub struct TypeChecker {
     symbol_table: SymbolTable,
     type_table: TypeTable,
+    switch_cases: SwitchCases,
     current_ret_ty: Type,
     strings: u16
 }
@@ -146,12 +149,13 @@ impl TypeChecker {
         Self {
             symbol_table: SymbolTable::new(),
             type_table: TypeTable::new(),
+            switch_cases: HashMap::new(),
             current_ret_ty: Type::Int,
             strings: 0
         }
     }
 
-    pub fn typecheck(mut self, program: ast::Program<Expr>) -> (ast::Program<TypedExpr>, SymbolTable, TypeTable) {
+    pub fn typecheck(mut self, program: ast::Program<Expr>) -> (ast::Program<TypedExpr>, SymbolTable, TypeTable, SwitchCases) {
         let program = ast::Program {
             top_level_items:
                 program.top_level_items.into_iter().filter_map(|f|{
@@ -184,7 +188,7 @@ impl TypeChecker {
                 }).collect()
         };
 
-        (program, self.symbol_table, self.type_table)
+        (program, self.symbol_table, self.type_table, self.switch_cases)
     }
 
     fn typecheck_struct_decl(&mut self, struct_decl: ast::StructDeclaration) {
@@ -925,6 +929,39 @@ impl TypeChecker {
 
                 Statement::For { init, cond, post, body, label }
             },
+            Statement::Switch(expr, block, label) => {
+                let expr = self.typecheck_expr(expr);
+
+                self.switch_cases.insert(label, (HashSet::new(), None));
+
+                let block = self.typecheck_block(block);
+
+                Statement::Switch(expr, block, label)
+            },
+            Statement::Case(expr, label, personal_label) => {
+                // expr MUST be a const
+                let expr = self.typecheck_expr(expr);
+                let c = if let DefaultExpr::Constant(ref c) = expr.expr { c.clone() } else { panic!("Case item must be a constant!") };
+
+                if self.switch_cases.get(&label).unwrap().0.iter().find(|(o,_)|*o==c).is_some() {
+                    panic!("Cannot have the same value twice!");
+                }
+
+                self.switch_cases.get_mut(&label).unwrap().0.insert((c, personal_label));
+
+                Statement::Case(expr, label, personal_label)
+            },
+            Statement::Default(label, personal_label) => {
+                let sc = self.switch_cases.get_mut(&label).unwrap();
+
+                if sc.1.is_some() {
+                    panic!("Cannot have multiple defaults!");
+                }
+
+                sc.1 = Some(personal_label);
+
+                Statement::Default(label, personal_label)
+            }
 
 
             Statement::Break(l) => Statement::Break(l),

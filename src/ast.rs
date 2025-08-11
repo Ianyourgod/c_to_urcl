@@ -144,6 +144,9 @@ pub enum Statement<E> {
     },
     Break(u32),
     Continue(u32),
+    Switch(E, Block<E>, u32),
+    Case(E, u32, u32),
+    Default(u32, u32),
 }
 
 #[derive(Debug, Clone)]
@@ -531,7 +534,7 @@ pub enum Specifier {
     Enum(Ident),
 }
 
-#[derive(Debug, Clone, Eq, PartialEq)]
+#[derive(Debug, Clone, Eq, PartialEq, Hash)]
 pub enum Const {
     Int(i16),
     UInt(u16),

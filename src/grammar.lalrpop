@@ -55,6 +55,9 @@ NormalStatement: Statement<Expr> = {
     Block => Statement::Block(<>),
     "break" ";" => Statement::Break(0),
     "continue" ";" => Statement::Continue(0),
+    "switch" "(" <e:Expr> ")" <b:Block> => Statement::Switch(e, b, 0),
+    "case" <Expr> ":" => Statement::Case(<>, 0, 0),
+    "default" ":" => Statement::Default(0, 0),
 }
 
 ForInit: ForInit<Expr> = {

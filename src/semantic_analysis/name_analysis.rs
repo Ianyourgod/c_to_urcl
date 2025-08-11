@@ -400,7 +400,21 @@ impl Analyzer {
                 let body = Box::new(self.analyze_statement(*body, context));
 
                 ast::Statement::For { init, cond, post, body, label }
-            }
+            },
+            ast::Statement::Switch(expr, block, label) => {
+                let expr = self.analyze_expr(expr, context);
+
+                let block = self.analyze_block(block, context);
+
+                ast::Statement::Switch(expr, block, label)
+            },
+            ast::Statement::Case(expr, label, personal_label) => {
+                let expr = self.analyze_expr(expr, context);
+
+                ast::Statement::Case(expr, label, personal_label)
+            },
+
+            ast::Statement::Default(_, _) |
             ast::Statement::Break(_) |
             ast::Statement::Continue(_) => statement,
         }

@@ -27,9 +27,9 @@ fn main() {
         }
     };
 
-    let (ast, mut symbol_table, type_table) = semantic_analysis::analyse(ast);
+    let (ast, mut symbol_table, type_table, switch_cases) = semantic_analysis::analyse(ast);
 
-    let mir = mir::generate_mir(ast, &mut symbol_table, &type_table);
+    let mir = mir::generate_mir(ast, &mut symbol_table, &type_table, switch_cases);
 
     //println!("{:#?}", mir);
 

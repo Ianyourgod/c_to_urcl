@@ -1,8 +1,16 @@
 use crate::ast;
 
+type Label = (u32, LabelType);
+
 pub struct LoopLabeler {
-    label_stack: Vec<u32>,
+    label_stack: Vec<Label>,
     label_count: u32,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum LabelType {
+    Loop,
+    Switch,
 }
 
 impl LoopLabeler {
@@ -39,11 +47,23 @@ impl LoopLabeler {
         });
     }
 
-    fn new_label(&mut self) -> u32 {
-        let label = self.label_count;
-        self.label_stack.push(label);
+    fn new_label_num(&mut self) -> u32 {
         self.label_count += 1;
+        self.label_count
+    }
+
+    fn new_label(&mut self, label_type: LabelType) -> u32 {
+        let label = self.new_label_num();
+        self.label_stack.push((label, label_type));
         return label;
+    }
+
+    fn new_loop_label(&mut self) -> u32 {
+        self.new_label(LabelType::Loop)
+    }
+
+    fn new_switch_label(&mut self) -> u32 {
+        self.new_label(LabelType::Switch)
     }
 
     fn end_loop(&mut self) {
@@ -53,29 +73,43 @@ impl LoopLabeler {
     fn label_stmt(&mut self, stmt: &mut ast::Statement<ast::Expr>) {
         match stmt {
             &mut ast::Statement::While(_, ref mut body, ref mut label) => {
-                let l = self.new_label();
+                let l = self.new_loop_label();
                 *label = l;
                 self.label_stmt(body);
                 self.end_loop();
             },
             &mut ast::Statement::DoWhile(_, ref mut body, ref mut label) => {
-                let l = self.new_label();
+                let l = self.new_loop_label();
                 *label = l;
                 self.label_stmt(body);
                 self.end_loop();
             }
             &mut ast::Statement::For { ref mut body, ref mut label, .. } => {
-                let l = self.new_label();
+                let l = self.new_loop_label();
                 *label = l;
                 self.label_stmt(body);
                 self.end_loop();
             }
+            &mut ast::Statement::Switch(_, ref mut body, ref mut label) => {
+                let l = self.new_switch_label();
+                *label = l;
+                self.label_block(body);
+                self.end_loop();
+            },
+            &mut ast::Statement::Case(_, ref mut label, ref mut personal_label) => {
+                *label = self.get_last_switch_label().unwrap();
+                *personal_label = self.new_label_num();
+            },
+            &mut ast::Statement::Default(ref mut label, ref mut personal_label) => {
+                *label = self.get_last_switch_label().unwrap();
+                *personal_label = self.new_label_num();
+            },
             &mut ast::Statement::Break(ref mut label) => {
-                *label = *self.label_stack.last().unwrap();
-            }
+                *label = self.get_last_label().unwrap();
+            },
             &mut ast::Statement::Continue(ref mut label) => {
-                *label = *self.label_stack.last().unwrap();
-            }
+                *label = self.get_last_loop_label().unwrap();
+            },
 
             &mut ast::Statement::Block(ref mut block) => self.label_block(block),
             &mut ast::Statement::If(_, ref mut inner_stuff) => {
@@ -91,5 +125,21 @@ impl LoopLabeler {
             &mut ast::Statement::Expr(_) |
             &mut ast::Statement::Return(_) => ()
         }
+    }
+
+    fn get_last_label(&self) -> Option<u32> {
+        self.label_stack.last().map(|a|a.0)
+    }
+
+    fn get_last_label_ty(&self, label_type: LabelType) -> Option<u32> {
+        self.label_stack.iter().rev().find(|i|i.1==label_type).map(|a|a.0)
+    }
+
+    fn get_last_loop_label(&self) -> Option<u32> {
+        self.get_last_label_ty(LabelType::Loop)
+    }
+
+    fn get_last_switch_label(&self) -> Option<u32> {
+        self.get_last_label_ty(LabelType::Switch)
     }
 }
