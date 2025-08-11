@@ -51,8 +51,9 @@ impl<'s> Generator<'s> {
                                 mir_def::Type::Fn { .. } => unreachable!(),
 
                                 mir_def::Type::Int => vec![mir_def::StaticInit::IntInit(0)],
+                                mir_def::Type::Enum(_) |
+                                mir_def::Type::Pointer(_) |
                                 mir_def::Type::UInt => vec![mir_def::StaticInit::UIntInit(0)],
-                                mir_def::Type::Pointer(_) => vec![mir_def::StaticInit::UIntInit(0)],
                                 mir_def::Type::Char => vec![mir_def::StaticInit::CharInit(0)],
                                 mir_def::Type::UChar => vec![mir_def::StaticInit::UCharInit(0)],
                                 mir_def::Type::Array(ref inner_ty, len) => {
@@ -185,6 +186,7 @@ impl<'l> FunctionGenerator<'l> {
             ast::Declaration::Var(v) => self.generate_var_decl(v, symbol_table),
             ast::Declaration::Struct(_) |
             ast::Declaration::Union(_) |
+            ast::Declaration::Enum(_) |
             ast::Declaration::Fn(_) => ()
         }
     }

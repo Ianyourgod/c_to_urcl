@@ -85,6 +85,21 @@ impl MemberDeclaration {
 }
 
 #[derive(Debug, Clone)]
+pub struct EnumDeclaration {
+    pub name: Ident,
+    pub items: Vec<Ident>,
+}
+
+impl EnumDeclaration {
+    pub fn new(name: Ident, items: Vec<Ident>) -> Self {
+        Self {
+            name,
+            items
+        }
+    }
+}
+
+#[derive(Debug, Clone)]
 pub struct Block<E> {
     pub statements: Vec<BlockItem<E>>
 }
@@ -103,6 +118,7 @@ pub enum Declaration<E> {
     Fn(FunctionDecl<E>),
     Struct(StructDeclaration),
     Union(UnionDeclaration),
+    Enum(EnumDeclaration),
 }
 
 #[derive(Debug, Clone)]
@@ -278,6 +294,7 @@ pub enum Type {
     Void,
     Struct(Ident),
     Union(Ident),
+    Enum(Ident),
 }
 
 impl Type {
@@ -306,12 +323,22 @@ impl Type {
 
         if specifiers.iter().any(|t|matches!(t, Specifier::Union(_))) {
             if specifiers.len() > 1 {
-                panic!("Cannot have struct specifier and other specifiers");
+                panic!("Cannot have union specifier and other specifiers");
             }
 
             let union_tag = if let Specifier::Union(t) = specifiers.get(0).unwrap() { t } else { unreachable!() };
 
             return Self::Union(union_tag.clone());
+        }
+
+        if specifiers.iter().any(|t|matches!(t, Specifier::Enum(_))) {
+            if specifiers.len() > 1 {
+                panic!("Cannot have enum specifier and other specifiers");
+            }
+
+            let enum_tag = if let Specifier::Enum(t) = specifiers.get(0).unwrap() { t } else { unreachable!() };
+
+            return Self::Enum(enum_tag.clone());
         }
 
         if specifiers.contains(&Specifier::Void) {
@@ -377,6 +404,7 @@ impl Type {
             Type::UChar |
             Type::Struct(_) |
             Type::Union(_) |
+            Type::Enum(_) |
             Type::UInt => false,
 
             Type::Char |
@@ -386,6 +414,7 @@ impl Type {
 
     pub fn is_arithmetic(&self) -> bool {
         match self {
+            Type::Enum(_) |
             Type::Char | Type::UChar |
             Type::Int  | Type::UInt => true,
 
@@ -433,7 +462,11 @@ impl Type {
         if matches!(self, Self::Void) { return false; }
         
         if let Type::Struct(name) | Type::Union(name) = self {
-            return type_table.entries.contains_key(name)
+            return type_table.entries.contains_key(name);
+        }
+
+        if let Type::Enum(name) = self {
+            return type_table.enums.contains_key(name);
         }
 
         return true;
@@ -456,10 +489,11 @@ impl Type {
 
     pub fn size(&self, type_table: &TypeTable) -> u16 {
         match self {
-            &Type::UInt |
+            &Type::Enum(_) |
             &Type::Pointer(_) |
             &Type::Char |
             &Type::UChar |
+            &Type::UInt |
             &Type::Int => 1,
 
             &Type::Array(ref inner_ty, len) => {
@@ -469,7 +503,7 @@ impl Type {
             &Type::Union(ref name) |
             &Type::Struct(ref name) => {
                 type_table.entries.get(name).unwrap().size
-            }
+            },
 
             &Type::Fn { .. } => unreachable!(),
             &Type::Void => unreachable!()
@@ -494,14 +528,19 @@ pub enum Specifier {
     Void,
     Struct(Ident),
     Union(Ident),
+    Enum(Ident),
 }
 
-#[derive(Debug, Clone, Copy, Eq, PartialEq)]
+#[derive(Debug, Clone, Eq, PartialEq)]
 pub enum Const {
     Int(i16),
     UInt(u16),
     Char(i16),
     UChar(u16),
+    EnumItem {
+        item: Ident,
+        enum_name: Ident,
+    },
 }
 
 impl Const {
@@ -511,6 +550,7 @@ impl Const {
             Self::UInt(_) => Type::UInt,
             Self::Char(_) => Type::Char,
             Self::UChar(_) => Type::UChar,
+            Self::EnumItem { enum_name, .. } => Type::Enum(enum_name.clone())
         }
     }
 }

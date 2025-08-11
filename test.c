@@ -1,18 +1,11 @@
-struct IStoreStuff {
-    char a;
-};
-
-struct Node {
-    int val;
-    struct IStoreStuff inner;
+enum Greek {
+    ALPHA,
+    SIGMA,
+    BETA
 };
 
 int main(void) {
-    struct Node n = { 0 };
+    enum Greek item = BETA;
 
-    int sum = 0;
-    for (int i=1;i<=10;i++) {
-        sum += i;
-    }
-    return ++sum;
+    return item + 2;
 }

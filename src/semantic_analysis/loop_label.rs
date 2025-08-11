@@ -21,6 +21,7 @@ impl LoopLabeler {
                 },
                 &mut ast::Declaration::Struct(_) |
                 &mut ast::Declaration::Union(_) |
+                &mut ast::Declaration::Enum(_) |
                 &mut ast::Declaration::Var(_) => ()
             }
         });

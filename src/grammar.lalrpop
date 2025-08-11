@@ -64,6 +64,7 @@ ForInit: ForInit<Expr> = {
             Declaration::Fn(_) => panic!("Cannot have a function declaration inside a for loop"),
             Declaration::Struct(_) => panic!("Cannot have a struct declaration inside a for loop"),
             Declaration::Union(_) => panic!("Cannot have a struct declaration inside a for loop"),
+            Declaration::Enum(_) => panic!("Cannot have an enum declaration inside a for loop"),
         }
     },
     <e:Expr> ";" => ForInit::Expr(e),
@@ -79,6 +80,7 @@ Specifier: Specifier = {
     "void"           => Specifier::Void,
     "struct" <Ident> => Specifier::Struct(<>),
     "union"  <Ident> => Specifier::Union(<>),
+    "enum"   <Ident> => Specifier::Enum(<>),
 };
 
 Type: Type = {
@@ -109,6 +111,7 @@ TypeAndStorageClass: (Type, Option<StorageClass>) = {
 
                 Specifier::Struct(_)   |
                 Specifier::Union(_)    |
+                Specifier::Enum(_)     |
                 Specifier::Void        |
                 Specifier::Char        |
                 Specifier::Int         |
@@ -194,7 +197,11 @@ Declaration: Declaration<Expr> = {
 
         Declaration::Union(UnionDeclaration::new(name, decls))
     },
+    "enum" <name:Ident> <items:("{" <Comma<Ident>> "}")?> ";" => {
+        let items = items.unwrap_or(Vec::new());
 
+        Declaration::Enum(EnumDeclaration::new(name, items))
+    }
 };
 
 MemberDecl: MemberDeclaration = {
@@ -466,6 +473,7 @@ ArrayDeclLen: u16 = {
             Const::UChar(n) |
             Const::UInt(n) => n,
             
+            Const::EnumItem{..} => unreachable!(),
         }
     }
 };

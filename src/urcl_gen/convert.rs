@@ -147,6 +147,8 @@ impl<'a, T: CPUDefinition> ASMGenerator<'a, T> {
                     mir_def::Const::UInt(_) => mir_def::Type::UInt,
                     mir_def::Const::Char(_) => mir_def::Type::Char,
                     mir_def::Const::UChar(_) => mir_def::Type::UChar,
+
+                    mir_def::Const::EnumItem { .. } => unreachable!(),
                 }
             },
             mir_def::Val::Var(v) => {
@@ -456,7 +458,8 @@ impl<'a, T: CPUDefinition> ASMGenerator<'a, T> {
                 mir_def::Const::Int(n) => n as i32,
                 mir_def::Const::UChar(n) |
                 mir_def::Const::UInt(n) => n as i32,
-                
+
+                mir_def::Const::EnumItem { .. } => unreachable!()
             }),
             mir_def::Val::Var(v) => asm::PVal::Var(v)
         }

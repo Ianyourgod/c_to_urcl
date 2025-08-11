@@ -64,18 +64,6 @@ pub enum StaticInit {
     ZeroInit,
 }
 
-impl StaticInit {
-    #[allow(dead_code)]
-    pub fn from_const(c: ast::Const) -> Self {
-        match c {
-            ast::Const::Char(n) |
-            ast::Const::Int(n) => Self::IntInit(n),
-            ast::Const::UChar(n) |
-            ast::Const::UInt(n) => Self::UIntInit(n),
-        }
-    }
-}
-
 impl Display for StaticInit {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         let s = match self {
@@ -98,12 +86,14 @@ impl Display for StaticInit {
 #[derive(Debug, Clone)]
 pub struct TypeTable {
     pub entries: HashMap<Ident, UserTyEntry>,
+    pub enums: HashMap<Ident, Vec<Ident>>,
 }
 
 impl TypeTable {
     pub fn new() -> Self {
         Self {
             entries: HashMap::new(),
+            enums: HashMap::new(),
         }
     }
 }
@@ -185,6 +175,11 @@ impl TypeChecker {
 
                             None
                         },
+                        ast::Declaration::Enum(enum_decl) => {
+                            self.typecheck_enum_decl(enum_decl);
+
+                            None
+                        }
                     }
                 }).collect()
         };
@@ -284,6 +279,30 @@ impl TypeChecker {
                 if let Type::Fn { .. } = member.ty {
                     panic!("Member cannot have function type");
                 }
+            }
+        }
+    }
+
+    fn typecheck_enum_decl(&mut self, enum_decl: ast::EnumDeclaration) {
+        if enum_decl.items.is_empty() {
+            return;
+        }
+
+        self.validate_enum_decl(&enum_decl);
+
+        self.type_table.enums.insert(enum_decl.name, enum_decl.items);
+    }
+
+    fn validate_enum_decl(&mut self, enum_decl: &ast::EnumDeclaration) {
+        if self.type_table.enums.contains_key(&enum_decl.name) {
+            panic!("Cannot redeclare union");
+        }
+
+        for (idx, item) in enum_decl.items.iter().enumerate() {
+            for (other_idx, other) in enum_decl.items.iter().enumerate() {
+                if idx == other_idx { continue; }
+
+                if item == other { panic!("Cannot have 2 items of the same name"); }
             }
         }
     }
@@ -582,6 +601,11 @@ impl TypeChecker {
             ast::Const::UInt(n) => StaticInit::UIntInit(n),
             ast::Const::Char(n) => StaticInit::CharInit(n),
             ast::Const::UChar(n) => StaticInit::UCharInit(n),
+            ast::Const::EnumItem { item, enum_name } => {
+                let n = self.type_table.enums.get(&enum_name).unwrap().iter().position(|e|*e==item).unwrap() as u16;
+
+                StaticInit::UIntInit(n)
+            }
         }
     }
 
@@ -616,8 +640,11 @@ impl TypeChecker {
                     .collect()
             },
             ast::Type::Int => vec![StaticInit::IntInit(0)],
+
+            ast::Type::Enum(_) |
+            ast::Type::Pointer(_) |
             ast::Type::UInt => vec![StaticInit::UIntInit(0)],
-            ast::Type::Pointer(_) => vec![StaticInit::IntInit(0)],
+
             ast::Type::Char => vec![StaticInit::CharInit(0)],
             ast::Type::UChar => vec![StaticInit::UCharInit(0)],
             ast::Type::Struct(tag) => {
@@ -644,6 +671,7 @@ impl TypeChecker {
         self.validate_type_specifier(&var_decl.ty);
         
         if !var_decl.ty.is_complete(&self.type_table) && !(var_decl.storage_class == Some(ast::StorageClass::Extern) && var_decl.expr.is_none()) {
+            println!("{:?}", var_decl.ty);
             panic!("Cannot declare variable with incomplete type");
         }
 
@@ -780,7 +808,8 @@ impl TypeChecker {
         match ty {
             Type::Int => ast::Initializer::Single(TypedExpr::new(DefaultExpr::Constant(ast::Const::Int(0)), ast::Type::Int)),
             Type::UInt => ast::Initializer::Single(TypedExpr::new(DefaultExpr::Constant(ast::Const::UInt(0)), ast::Type::Int)),
-            Type::Pointer(_) => ast::Initializer::Single(TypedExpr::new(DefaultExpr::Constant(ast::Const::Int(0)), ty.clone())),
+            Type::Pointer(_) => ast::Initializer::Single(TypedExpr::new(DefaultExpr::Constant(ast::Const::UInt(0)), ty.clone())),
+            Type::Enum(_) => ast::Initializer::Single(TypedExpr::new(DefaultExpr::Constant(ast::Const::UInt(0)), ty.clone())),
             Type::Array(ty, len) => {
                 ast::Initializer::Compound(std::iter::repeat(self.zero_init(ty.as_ref())).take(*len as usize).collect())
             },
@@ -830,6 +859,11 @@ impl TypeChecker {
 
                 None
             },
+            ast::Declaration::Enum(enum_decl) => {
+                self.typecheck_enum_decl(enum_decl);
+
+                None
+            }
         }
     }
 
@@ -923,7 +957,13 @@ impl TypeChecker {
     fn typecheck_expr(&mut self, expr: Expr) -> TypedExpr {
         match expr.0 {
             DefaultExpr::Constant(c) => {
-                TypedExpr::new(DefaultExpr::Constant(c), c.to_type())
+                let ty = c.to_type();
+                if let ast::Const::EnumItem { item, enum_name } = c {
+                    let n = self.type_table.enums.get(&enum_name).unwrap().iter().position(|e|*e==item).unwrap() as u16;
+                    TypedExpr::new(DefaultExpr::Constant(ast::Const::UInt(n)), ty)
+                } else {
+                    TypedExpr::new(DefaultExpr::Constant(c), ty)
+                }
             },
             DefaultExpr::FunctionCall(name, params) => {
                 let fn_ty = self.symbol_table.get(&name).unwrap();
@@ -1309,7 +1349,7 @@ impl TypeChecker {
 
     fn is_null_pointer_constant(&self, expr: &TypedExpr) -> bool {
         match expr.expr {
-            DefaultExpr::Constant(c) => {
+            DefaultExpr::Constant(ref c) => {
                 match c {
                     ast::Const::Int(0)   |
                     ast::Const::UInt(0) => true,

@@ -15,67 +15,24 @@ HLT
 .main
 	PSH $2
 	MOV $2 SP
-	SUB SP SP 5
+	SUB SP SP 3
 	// .lbl.gen.1.
 	.lbl.gen.1.
-	// MOV .na.gen.sum.3 0
-	MOV $7 0
+	// MOV .na.gen.item.5 2
+	MOV $7 2
 	LSTR $2 -1 $7
-	// MOV .na.gen.i.4 1
-	MOV $7 1
+	// MOV tmp.2. 2
+	MOV $7 2
 	LSTR $2 -2 $7
-	// JMP .lbl.gen.2.
-	JMP .lbl.gen.2.
-	// .lbl.gen.2.
-	.lbl.gen.2.
-	// SSETLE tmp.3. .na.gen.i.4 10
-	LLOD $7 $2 -2
-	SSETLE $7 $7 10
-	LSTR $2 -3 $7
-	// AND tmp.3. tmp.3. 1
-	LLOD $7 $2 -3
-	AND $7 $7 1
-	LSTR $2 -3 $7
-	// BRE .lbl.lbreak.1. tmp.3. 0
-	LLOD $7 $2 -3
-	BRE .lbl.lbreak.1. $7 0
-	// JMP .lbl.gen.4.
-	JMP .lbl.gen.4.
-	// .lbl.lbreak.1.
-	.lbl.lbreak.1.
-	// ADD .na.gen.sum.3 .na.gen.sum.3 1
+	// ADD tmp.3. .na.gen.item.5 tmp.2.
 	LLOD $7 $2 -1
-	ADD $7 $7 1
-	LSTR $2 -1 $7
-	// MOV $1 .na.gen.sum.3
-	LLOD $7 $2 -1
+	LLOD $8 $2 -2
+	ADD $7 $7 $8
+	LSTR $2 -3 $7
+	// MOV $1 tmp.3.
+	LLOD $7 $2 -3
 	MOV $1 $7
 	// RET
 	MOV SP $2
 	POP $2
 	RET
-	// .lbl.gen.4.
-	.lbl.gen.4.
-	// ADD tmp.5. .na.gen.sum.3 .na.gen.i.4
-	LLOD $7 $2 -1
-	LLOD $8 $2 -2
-	ADD $7 $7 $8
-	LSTR $2 -4 $7
-	// MOV .na.gen.sum.3 tmp.5.
-	LLOD $7 $2 -4
-	MOV $7 $7
-	LSTR $2 -1 $7
-	// JMP .lbl.lcont1.
-	JMP .lbl.lcont1.
-	// .lbl.lcont1.
-	.lbl.lcont1.
-	// MOV tmp.6. .na.gen.i.4
-	LLOD $7 $2 -2
-	MOV $7 $7
-	LSTR $2 -5 $7
-	// ADD .na.gen.i.4 .na.gen.i.4 1
-	LLOD $7 $2 -2
-	ADD $7 $7 1
-	LSTR $2 -2 $7
-	// JMP .lbl.gen.2.
-	JMP .lbl.gen.2.

@@ -10,6 +10,7 @@ pub struct Context {
     pub name_mappings: HashMap<Ident, ContextItem>,
     pub struct_map: HashMap<Ident, UserDefContext>,
     pub union_map: HashMap<Ident, UserDefContext>,
+    pub enum_map: HashMap<Ident, UserDefContext>,
 }
 
 impl Context {
@@ -18,6 +19,7 @@ impl Context {
             name_mappings: HashMap::new(),
             struct_map: HashMap::new(),
             union_map: HashMap::new(),
+            enum_map: HashMap::new(),
         }
     }
 }
@@ -51,6 +53,7 @@ pub struct ContextItem {
     pub ident: Ident,
     pub from_this_scope: bool,
     pub has_linkage: bool,
+    pub enum_item: Option<Ident>,
 }
 
 impl Clone for ContextItem {
@@ -59,6 +62,7 @@ impl Clone for ContextItem {
             ident: self.ident.clone(),
             from_this_scope: false,
             has_linkage: self.has_linkage,
+            enum_item: self.enum_item.clone(),
         }
     }
 }
@@ -68,7 +72,17 @@ impl ContextItem {
         Self {
             ident,
             from_this_scope: true,
-            has_linkage
+            has_linkage,
+            enum_item: None
+        }
+    }
+
+    pub fn new_enum(ident: Ident, enum_name: Ident) -> Self {
+        Self {
+            ident,
+            from_this_scope: true,
+            has_linkage: false,
+            enum_item: Some(enum_name)
         }
     }
 }
@@ -102,6 +116,9 @@ impl Analyzer {
                     ast::Declaration::Union(union_decl) => {
                         ast::Declaration::Union(self.analyze_union(union_decl, &mut ctx))
                     },
+                    ast::Declaration::Enum(enum_decl) => {
+                        ast::Declaration::Enum(self.analyze_enum(enum_decl, &mut ctx))
+                    }
                 }
             }).collect()
         }
@@ -146,6 +163,28 @@ impl Analyzer {
         ast::UnionDeclaration::new(unique_tag, members)
     }
 
+    fn analyze_enum(&mut self, enum_decl: ast::EnumDeclaration, context: &mut Context) -> ast::EnumDeclaration {
+        let unique_tag = if let Some(ref old_entry) = context.enum_map.get(&enum_decl.name) && old_entry.from_this_scope {
+            old_entry.ident.clone()
+        } else {
+            let tag = self.gen_new_ident(&enum_decl.name);
+            context.union_map.insert(enum_decl.name.clone(), UserDefContext::new(tag.clone()));
+            tag
+        };
+
+        let items = enum_decl.items.into_iter().map(|name| {
+            let new_name = self.gen_new_ident(&name);
+            
+            context.name_mappings.insert(name, ContextItem::new_enum(new_name.clone(), unique_tag.clone()));
+
+            new_name
+        }).collect();
+
+        context.enum_map.insert(enum_decl.name, UserDefContext::new(unique_tag.clone()));
+
+        ast::EnumDeclaration::new(unique_tag, items)
+    }
+
     fn process_type(&mut self, ty: ast::Type, context: &Context) -> ast::Type {
         match ty {
             ast::Type::Struct(struct_name) => {
@@ -156,13 +195,19 @@ impl Analyzer {
                 }
             },
             ast::Type::Union(union_name) => {
-                println!("{union_name}");
                 if let Some(entry) = context.union_map.get(&union_name) {
                     ast::Type::Union(entry.ident.clone())
                 } else {
                     panic!("Cannot use undeclared union type");
                 }
             },
+            ast::Type::Enum(enum_name) => {
+                if let Some(entry) = context.enum_map.get(&enum_name) {
+                    ast::Type::Enum(entry.ident.clone())
+                } else {
+                    panic!("Cannot use undeclared enum type")
+                }
+            }
             ast::Type::Pointer(inner_ty) => {
                 let inner_ty = self.process_type(*inner_ty, context);
 
@@ -245,6 +290,9 @@ impl Analyzer {
             ast::Declaration::Union(union_decl) => {
                 ast::Declaration::Union(self.analyze_union(union_decl, context))
             },
+            ast::Declaration::Enum(enum_decl) => {
+                ast::Declaration::Enum(self.analyze_enum(enum_decl, context))
+            }
         }
     }
 
@@ -394,7 +442,11 @@ impl Analyzer {
             ast::DefaultExpr::Var(name) => {
                 let name = self.get_ctx_item(&name, context);
 
-                ast::DefaultExpr::Var(name.ident.clone())
+                if let Some(ref enum_name) = name.enum_item {
+                    ast::DefaultExpr::Constant(ast::Const::EnumItem { item: name.ident.clone(), enum_name: enum_name.clone() })
+                } else {
+                    ast::DefaultExpr::Var(name.ident.clone())
+                }
             },
             ast::DefaultExpr::Ternary(box (cond, l, r)) => {
                 let cond = self.analyze_expr(cond, context);
