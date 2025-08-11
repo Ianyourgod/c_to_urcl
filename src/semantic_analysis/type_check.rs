@@ -5,7 +5,6 @@ use std::rc::Rc;
 use indexmap::IndexMap;
 
 use crate::ast::{self, Expr, TypedExpr, DefaultExpr, Type, Statement};
-use crate::mir::mir_gen::get_size_of_type;
 use crate::Ident;
 
 #[derive(Debug, Clone)]
@@ -204,7 +203,7 @@ impl TypeChecker {
         let members = struct_decl.members.into_iter().map(|member| {
             let offset = struct_size;
 
-            struct_size += get_size_of_type(&member.ty, &self.type_table);
+            struct_size += member.ty.size(&self.type_table);
 
             (member.name.clone(), MemberEntry {
                 name: member.name,
@@ -251,7 +250,7 @@ impl TypeChecker {
 
         let mut union_size = 0;
         let members = union_decl.members.into_iter().map(|member| {
-            union_size = union_size.max(get_size_of_type(&member.ty, &self.type_table));
+            union_size = union_size.max(member.ty.size(&self.type_table));
 
             (member.name.clone(), MemberEntry {
                 name: member.name,
@@ -419,7 +418,7 @@ impl TypeChecker {
 
                 for (init, member) in inits.into_iter().zip(decl.members.values().cloned().collect::<Vec<_>>().into_iter()) {
                     static_inits.append(&mut self.init_to_static(init, &member.ty));
-                    current_size = current_size.max(get_size_of_type(&member.ty, &self.type_table));
+                    current_size = current_size.max(member.ty.size(&self.type_table));
                 }
 
                 for _ in current_size..decl_size {
@@ -441,7 +440,7 @@ impl TypeChecker {
 
                 for (init, member) in inits.into_iter().zip(decl.members.values().cloned().collect::<Vec<_>>().into_iter()) {
                     static_inits.append(&mut self.init_to_static(init, &member.ty));
-                    current_size += get_size_of_type(&member.ty, &self.type_table);
+                    current_size += member.ty.size(&self.type_table);
                 }
 
                 for _ in current_size..decl_size {
@@ -481,7 +480,7 @@ impl TypeChecker {
                 
                 let member = decl.members.get(&name).unwrap();
                 static_inits.append(&mut self.init_to_static(init, &member.ty));
-                let current_size = get_size_of_type(&member.ty, &self.type_table);
+                let current_size = member.ty.size(&self.type_table);
 
                 for _ in current_size..decl_size {
                     static_inits.push(StaticInit::ZeroInit);
@@ -1031,8 +1030,8 @@ impl TypeChecker {
                 let left = self.typecheck_expr_and_convert(left);
                 let right = self.typecheck_expr_and_convert(right);
 
-                if !left.ty.is_complete(&self.type_table) || right.ty.is_complete(&self.type_table) {
-                    panic!("Cannot do arithmatic to incomplete types");
+                if !left.ty.is_complete(&self.type_table) || !right.ty.is_complete(&self.type_table) {
+                    panic!("Cannot do arithmatic to incomplete types or");
                 }
 
                 if op == ast::BinOp::And || op == ast::BinOp::Or {
@@ -1047,6 +1046,42 @@ impl TypeChecker {
                 let ty = if op.is_arithmetic() { common_type } else { Type::Int };
 
                 TypedExpr::new(DefaultExpr::Binary(op, Box::new((left, right))), ty)
+            },
+            DefaultExpr::Unary(ast::UnOp::Increment { is_post }, box inner) => {
+                let inner = self.typecheck_expr(inner);
+                if !self.is_lvalue(&inner) {
+                    panic!("Cannot increment a non-lvalue");
+                }
+
+                if !inner.ty.is_complete(&self.type_table) {
+                    panic!("Cannot do arithmatic to incomplete types");
+                }
+
+                if !inner.ty.is_arithmetic() && !inner.ty.is_pointer_type() {
+                    panic!("Cannot do arithmatic on non-arithmetic/non-pointer type");
+                }
+
+                let ty = inner.ty.clone();
+
+                TypedExpr::new(DefaultExpr::Unary(ast::UnOp::Increment { is_post }, Box::new(inner)), ty)
+            },
+            DefaultExpr::Unary(ast::UnOp::Decrement { is_post }, box inner) => {
+                let inner = self.typecheck_expr(inner);
+                if !self.is_lvalue(&inner) {
+                    panic!("Cannot decrement a non-lvalue");
+                }
+
+                if !inner.ty.is_complete(&self.type_table) {
+                    panic!("Cannot do arithmatic to incomplete types");
+                }
+
+                if !inner.ty.is_arithmetic() && !inner.ty.is_pointer_type() {
+                    panic!("Cannot do arithmatic on non-arithmetic/non-pointer type");
+                }
+
+                let ty = inner.ty.clone();
+
+                TypedExpr::new(DefaultExpr::Unary(ast::UnOp::Decrement { is_post }, Box::new(inner)), ty)
             },
             DefaultExpr::Unary(ast::UnOp::Not, box inner) => {
                 let inner = self.typecheck_expr_and_convert(inner);

@@ -2,7 +2,7 @@ use std::collections::HashMap;
 
 use crate::semantic_analysis::type_check::{IdentifierAttrs, SymbolTable, TypeTable};
 use crate::urcl_gen::{asm, cpu_definitions::CPUDefinition};
-use crate::mir::{mir_def::Ident, mir_gen::get_size_of_type};
+use crate::mir::mir_def::Ident;
 
 pub fn fix_pvals<'a, T:CPUDefinition>(program: asm::Program<'a, asm::PVal, T>, symbol_table: &'a SymbolTable, type_table: &'a TypeTable, cpu: &'a T) -> asm::Program<'a, asm::Val, T> {
     let r = RemovePseudo::new(symbol_table, type_table, cpu);
@@ -252,7 +252,7 @@ impl<'a, T: CPUDefinition> RemovePseudo<'a, T> {
 
             match entry.attrs {
                 IdentifierAttrs::Local => {
-                    self.stack_offset += get_size_of_type(&entry.ty, self.type_table) as u32;
+                    self.stack_offset += entry.ty.size(self.type_table) as u32;
                     VarPosition::Stack(self.stack_offset)
                 },
                 IdentifierAttrs::Constant { .. } |

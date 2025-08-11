@@ -31,7 +31,7 @@ fn main() {
 
     let mir = mir::generate_mir(ast, &mut symbol_table, &type_table);
 
-    println!("{:#?}", mir);
+    //println!("{:#?}", mir);
 
     let backend = urcl_gen::cpu_definitions::IRIS::new();
     let asm = urcl_gen::mir_to_asm(mir, &mut symbol_table, &type_table, &backend);

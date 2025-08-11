@@ -209,6 +209,8 @@ pub enum UnOp {
     Not,
     Dereference,
     AddressOf,
+    Increment { is_post: bool },
+    Decrement { is_post: bool },
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -450,6 +452,28 @@ impl Type {
 
     pub fn is_fn(&self) -> bool {
         matches!(self, Self::Fn { .. })
+    }
+
+    pub fn size(&self, type_table: &TypeTable) -> u16 {
+        match self {
+            &Type::UInt |
+            &Type::Pointer(_) |
+            &Type::Char |
+            &Type::UChar |
+            &Type::Int => 1,
+
+            &Type::Array(ref inner_ty, len) => {
+                let inner_size = inner_ty.size(type_table);
+                inner_size * len
+            },
+            &Type::Union(ref name) |
+            &Type::Struct(ref name) => {
+                type_table.entries.get(name).unwrap().size
+            }
+
+            &Type::Fn { .. } => unreachable!(),
+            &Type::Void => unreachable!()
+        }
     }
 }
 

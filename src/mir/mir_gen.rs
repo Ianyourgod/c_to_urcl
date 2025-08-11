@@ -57,7 +57,7 @@ impl<'s> Generator<'s> {
                                 mir_def::Type::UChar => vec![mir_def::StaticInit::UCharInit(0)],
                                 mir_def::Type::Array(ref inner_ty, len) => {
                                     (0..len).into_iter().flat_map(|_| {
-                                        let size = get_size_of_type(inner_ty.as_ref(), self.type_table);
+                                        let size = inner_ty.size(self.type_table);
                                         std::iter::repeat(mir_def::StaticInit::ZeroInit).take(size as usize)
                                     }).collect()
                                 },
@@ -65,7 +65,7 @@ impl<'s> Generator<'s> {
                                 mir_def::Type::Struct(ref name) => {
                                     let decl = self.type_table.entries.get(name).unwrap();
                                     decl.members.values().flat_map(|member| {
-                                        let size = get_size_of_type(&member.ty, self.type_table);
+                                        let size = member.ty.size(self.type_table);
                                         std::iter::repeat_n(mir_def::StaticInit::ZeroInit, size as usize)
                                     }).collect()
                                 }
@@ -110,28 +110,6 @@ enum ExprResult {
     SubObject {
         base: mir_def::Ident,
         offset: u16,
-    }
-}
-
-pub fn get_size_of_type(ty: &ast::Type, type_table: &TypeTable) -> u16 {
-    match ty {
-        &ast::Type::UInt |
-        &ast::Type::Pointer(_) |
-        &ast::Type::Char |
-        &ast::Type::UChar |
-        &ast::Type::Int => 1,
-
-        &ast::Type::Array(ref inner_ty, len) => {
-            let inner_size = get_size_of_type(&inner_ty, type_table);
-            inner_size * len
-        },
-        &ast::Type::Union(ref name) |
-        &ast::Type::Struct(ref name) => {
-            type_table.entries.get(name).unwrap().size
-        }
-
-        &ast::Type::Fn { .. } => unreachable!(),
-        &ast::Type::Void => unreachable!()
     }
 }
 
@@ -220,7 +198,7 @@ impl<'l> FunctionGenerator<'l> {
                 let mut current_offset = 0;
                 s.chars().into_iter().for_each(|c| {
                     let n = c as i16;
-                    self.current_block.instructions.push(mir_def::Instruction::CopyToOffset {
+                    self.push_instr(mir_def::Instruction::CopyToOffset {
                         src: mir_def::Val::Num(mir_def::Const::Char(n)),
                         offset: current_offset,
                         dst: write_to.clone()
@@ -228,7 +206,7 @@ impl<'l> FunctionGenerator<'l> {
 
                     current_offset += 1;
                 });
-                self.current_block.instructions.push(mir_def::Instruction::CopyToOffset {
+                self.push_instr(mir_def::Instruction::CopyToOffset {
                     src: mir_def::Val::Num(mir_def::Const::Char(0)),
                     offset: current_offset,
                     dst: write_to.clone()
@@ -236,7 +214,7 @@ impl<'l> FunctionGenerator<'l> {
             },
             (ast::Initializer::Single(expr), _) => {
                 let v = self.generate_expr_and_convert(expr, symbol_table);
-                self.current_block.instructions.push(mir_def::Instruction::Copy {
+                self.push_instr(mir_def::Instruction::Copy {
                     src: v,
                     dst: write_to
                 });
@@ -249,9 +227,9 @@ impl<'l> FunctionGenerator<'l> {
 
                 let tmp_ptr = self.gen_tmp_var(ast::Type::Pointer(Box::new(target_type)), symbol_table);
 
-                self.current_block.instructions.push(mir_def::Instruction::GetAddress { src: write_to, dst: tmp_ptr.clone() });
+                self.push_instr(mir_def::Instruction::GetAddress { src: write_to, dst: tmp_ptr.clone() });
 
-                self.current_block.instructions.push(mir_def::Instruction::Store {
+                self.push_instr(mir_def::Instruction::Store {
                     src: val,
                     dst_ptr: mir_def::Val::Var(tmp_ptr)
                 })
@@ -262,11 +240,11 @@ impl<'l> FunctionGenerator<'l> {
                 let mut current_offset = 0;
                 exprs.into_iter().for_each(|expr| {
                     // this works for structs since we have no padding
-                    let size = get_size_of_type(&expr.ty, self.type_table);
+                    let size = expr.ty.size(self.type_table);
 
                     let v = self.generate_expr_and_convert(expr, symbol_table);
 
-                    self.current_block.instructions.push(mir_def::Instruction::CopyToOffset {
+                    self.push_instr(mir_def::Instruction::CopyToOffset {
                         src: v,
                         offset: current_offset,
                         dst: write_to.clone()
@@ -492,6 +470,10 @@ impl<'l> FunctionGenerator<'l> {
         }
     }
 
+    fn push_instr(&mut self, instr: mir_def::Instruction) {
+        self.current_block.instructions.push(instr)
+    }
+
     fn generate_expr_and_convert(&mut self, expr: ast::TypedExpr, symbol_table: &mut SymbolTable) -> mir_def::Val {
         let ty = expr.ty.clone();
         
@@ -505,7 +487,7 @@ impl<'l> FunctionGenerator<'l> {
             ExprResult::Plain(v) => v,
             ExprResult::DerefedPtr(ptr) => {
                 let dst = self.gen_tmp_var(ty, symbol_table);
-                self.current_block.instructions.push(mir_def::Instruction::Load {
+                self.push_instr(mir_def::Instruction::Load {
                     src_ptr: ptr,
                     dst: dst.clone()
                 });
@@ -514,7 +496,7 @@ impl<'l> FunctionGenerator<'l> {
             ExprResult::SubObject { base, offset } => {
                 let dst = self.gen_tmp_var(ty, symbol_table);
 
-                self.current_block.instructions.push(mir_def::Instruction::CopyFromOffset {
+                self.push_instr(mir_def::Instruction::CopyFromOffset {
                     src: base,
                     offset: offset as i16,
                     dst: dst.clone()
@@ -535,7 +517,7 @@ impl<'l> FunctionGenerator<'l> {
 
                 match writing_to.clone() {
                     ExprResult::DerefedPtr(ptr) => {
-                        self.current_block.instructions.push(
+                        self.push_instr(
                             mir_def::Instruction::Store { src: val.clone(), dst_ptr: ptr }
                         );
 
@@ -547,12 +529,12 @@ impl<'l> FunctionGenerator<'l> {
                             mir_def::Val::Num(_) => unreachable!(),
                         };
 
-                        self.current_block.instructions.push(mir_def::Instruction::Copy { src: val.clone(), dst });
+                        self.push_instr(mir_def::Instruction::Copy { src: val.clone(), dst });
 
                         ExprResult::Plain(val)
                     },
                     ExprResult::SubObject { base, offset } => {
-                        self.current_block.instructions.push(mir_def::Instruction::CopyToOffset {
+                        self.push_instr(mir_def::Instruction::CopyToOffset {
                             src: val.clone(),
                             offset: offset as i16,
                             dst: base
@@ -570,7 +552,7 @@ impl<'l> FunctionGenerator<'l> {
 
                 let tmp_dst = self.gen_tmp_var(ty, symbol_table);
 
-                self.current_block.instructions.push(mir_def::Instruction::Binary {
+                self.push_instr(mir_def::Instruction::Binary {
                     op: match assign_type {
                         ast::AssignType::Add => mir_def::Binop::Add,
                         ast::AssignType::Sub => mir_def::Binop::Sub,
@@ -594,7 +576,7 @@ impl<'l> FunctionGenerator<'l> {
 
                 match dst {
                     ExprResult::Plain(mir_def::Val::Var(v)) => {
-                        self.current_block.instructions.push(mir_def::Instruction::Copy {
+                        self.push_instr(mir_def::Instruction::Copy {
                             src: tmp_dst.clone(),
                             dst: v
                         });
@@ -604,7 +586,7 @@ impl<'l> FunctionGenerator<'l> {
                     ExprResult::Plain(_) => unreachable!(),
 
                     ExprResult::DerefedPtr(v) => {
-                        self.current_block.instructions.push(mir_def::Instruction::Store {
+                        self.push_instr(mir_def::Instruction::Store {
                             src: tmp_dst.clone(),
                             dst_ptr: v
                         });
@@ -612,7 +594,7 @@ impl<'l> FunctionGenerator<'l> {
                         ExprResult::Plain(tmp_dst)
                     },
                     ExprResult::SubObject { base, offset } => {
-                        self.current_block.instructions.push(mir_def::Instruction::CopyToOffset {
+                        self.push_instr(mir_def::Instruction::CopyToOffset {
                             src: tmp_dst.clone(),
                             offset: offset as i16,
                             dst: base
@@ -628,13 +610,13 @@ impl<'l> FunctionGenerator<'l> {
             ast::DefaultExpr::Binary(ast::BinOp::Add, box (left @ TypedExpr{expr:_,ty:ast::Type::Pointer(_)},right)) => {
                 let inner_ty = left.ty.refed_ptr_ty().unwrap();
                 
-                let scale = get_size_of_type(inner_ty, self.type_table) as i16;
+                let scale = inner_ty.size(self.type_table) as i16;
                 let ptr = self.generate_expr_and_convert(left, symbol_table);
                 let idx = self.generate_expr_and_convert(right, symbol_table);
 
                 let dst = self.gen_tmp_var(ty, symbol_table);
 
-                self.current_block.instructions.push(mir_def::Instruction::AddPtr {
+                self.push_instr(mir_def::Instruction::AddPtr {
                     ptr,
                     idx,
                     scale,
@@ -647,20 +629,20 @@ impl<'l> FunctionGenerator<'l> {
             ast::DefaultExpr::Binary(ast::BinOp::Sub, box (left @ TypedExpr{expr:_,ty:ast::Type::Pointer(_)},right @ TypedExpr{expr:_,ty:ast::Type::Pointer(_)})) => {
                 let inner_ty = left.ty.refed_ptr_ty().unwrap();
                 
-                let scale = get_size_of_type(inner_ty, self.type_table) as i16;
+                let scale = inner_ty.size(self.type_table) as i16;
                 let src1 = self.generate_expr_and_convert(left, symbol_table);
                 let src2 = self.generate_expr_and_convert(right, symbol_table);
 
                 let dst = self.gen_tmp_var(ty, symbol_table);
 
-                self.current_block.instructions.push(mir_def::Instruction::Binary {
+                self.push_instr(mir_def::Instruction::Binary {
                     op: mir_def::Binop::Sub,
                     src1,
                     src2,
                     dst: dst.clone()
                 });
 
-                self.current_block.instructions.push(mir_def::Instruction::Binary {
+                self.push_instr(mir_def::Instruction::Binary {
                     op: mir_def::Binop::Div,
                     src1: mir_def::Val::Var(dst.clone()),
                     src2: mir_def::Val::Num(mir_def::Const::Int(scale)),
@@ -672,13 +654,13 @@ impl<'l> FunctionGenerator<'l> {
             ast::DefaultExpr::Binary(ast::BinOp::Sub, box (left @ TypedExpr{expr:_,ty:ast::Type::Pointer(_)},right)) => {
                 let inner_ty = left.ty.refed_ptr_ty().unwrap();
                 
-                let scale = -(get_size_of_type(inner_ty, self.type_table) as i16);
+                let scale = -(inner_ty.size(self.type_table) as i16);
                 let ptr = self.generate_expr_and_convert(left, symbol_table);
                 let idx = self.generate_expr_and_convert(right, symbol_table);
 
                 let dst = self.gen_tmp_var(ty, symbol_table);
 
-                self.current_block.instructions.push(mir_def::Instruction::AddPtr {
+                self.push_instr(mir_def::Instruction::AddPtr {
                     ptr,
                     idx,
                     scale,
@@ -697,7 +679,7 @@ impl<'l> FunctionGenerator<'l> {
 
                 let res = self.gen_tmp_var(ast::Type::Int, symbol_table);
 
-                self.current_block.instructions.push(mir_def::Instruction::Copy { src: mir_def::Val::Num(mir_def::Const::Int(0)), dst: res.clone() });
+                self.push_instr(mir_def::Instruction::Copy { src: mir_def::Val::Num(mir_def::Const::Int(0)), dst: res.clone() });
 
                 self.current_block.terminator = mir_def::Terminator::JumpCond {
                     target: first_true_id,
@@ -721,7 +703,7 @@ impl<'l> FunctionGenerator<'l> {
 
                 self.new_block_w_id(true_id);
 
-                self.current_block.instructions.push(mir_def::Instruction::Copy { src: mir_def::Val::Num(mir_def::Const::Int(1)), dst: res.clone() });
+                self.push_instr(mir_def::Instruction::Copy { src: mir_def::Val::Num(mir_def::Const::Int(1)), dst: res.clone() });
 
                 self.current_block.terminator = mir_def::Terminator::Jump { target: false_id };
 
@@ -740,7 +722,7 @@ impl<'l> FunctionGenerator<'l> {
 
                 let res = self.gen_tmp_var(ty, symbol_table);
 
-                self.current_block.instructions.push(mir_def::Instruction::Copy { src: mir_def::Val::Num(mir_def::Const::Int(1)), dst: res.clone() });
+                self.push_instr(mir_def::Instruction::Copy { src: mir_def::Val::Num(mir_def::Const::Int(1)), dst: res.clone() });
 
                 self.current_block.terminator = mir_def::Terminator::JumpCond {
                     target: first_false_id,
@@ -764,7 +746,7 @@ impl<'l> FunctionGenerator<'l> {
 
                 self.new_block_w_id(false_id);
 
-                self.current_block.instructions.push(mir_def::Instruction::Copy { src: mir_def::Val::Num(mir_def::Const::Int(0)), dst: res.clone() });
+                self.push_instr(mir_def::Instruction::Copy { src: mir_def::Val::Num(mir_def::Const::Int(0)), dst: res.clone() });
 
                 self.current_block.terminator = mir_def::Terminator::Jump { target: true_id };
 
@@ -800,7 +782,7 @@ impl<'l> FunctionGenerator<'l> {
 
                 let tmp_name = self.gen_tmp_var(ty, symbol_table);
 
-                self.current_block.instructions.push(mir_def::Instruction::Binary {
+                self.push_instr(mir_def::Instruction::Binary {
                     op,
                     src1: left,
                     src2: right,
@@ -814,7 +796,7 @@ impl<'l> FunctionGenerator<'l> {
 
                 let inner = self.generate_expr_and_convert(inner, symbol_table);
 
-                self.current_block.instructions.push(mir_def::Instruction::Copy { src: mir_def::Val::Num(mir_def::Const::Int(0)), dst: res.clone() });
+                self.push_instr(mir_def::Instruction::Copy { src: mir_def::Val::Num(mir_def::Const::Int(0)), dst: res.clone() });
 
                 let set_true = self.gen_block_id();
                 let f = self.gen_block_id();
@@ -829,7 +811,7 @@ impl<'l> FunctionGenerator<'l> {
 
                 self.new_block_w_id(set_true);
 
-                self.current_block.instructions.push(mir_def::Instruction::Copy { src: mir_def::Val::Num(mir_def::Const::Int(1)), dst: res.clone() });
+                self.push_instr(mir_def::Instruction::Copy { src: mir_def::Val::Num(mir_def::Const::Int(1)), dst: res.clone() });
 
                 self.current_block.terminator = mir_def::Terminator::Jump { target: f };
 
@@ -849,7 +831,7 @@ impl<'l> FunctionGenerator<'l> {
                     ExprResult::Plain(mir_def::Val::Var(v)) => {
                         let res = self.gen_tmp_var(ty, symbol_table);
 
-                        self.current_block.instructions.push(mir_def::Instruction::GetAddress {
+                        self.push_instr(mir_def::Instruction::GetAddress {
                             src: v,
                             dst: res.clone()
                         });
@@ -862,12 +844,12 @@ impl<'l> FunctionGenerator<'l> {
                     ExprResult::SubObject { base, offset } => {
                         let dst = self.gen_tmp_var(ty, symbol_table);
 
-                        self.current_block.instructions.push(mir_def::Instruction::GetAddress {
+                        self.push_instr(mir_def::Instruction::GetAddress {
                             src: base,
                             dst: dst.clone()
                         });
 
-                        self.current_block.instructions.push(mir_def::Instruction::AddPtr {
+                        self.push_instr(mir_def::Instruction::AddPtr {
                             ptr: mir_def::Val::Var(dst.clone()),
                             idx: mir_def::Val::Num(mir_def::Const::UInt(offset)),
                             scale: 1,
@@ -878,11 +860,181 @@ impl<'l> FunctionGenerator<'l> {
                     },
                 }
             },
+            ast::DefaultExpr::Unary(op @ (ast::UnOp::Decrement { is_post: false } | ast::UnOp::Increment { is_post: false }), box inner) => {
+                let inner = self.generate_expr(inner, symbol_table);
+
+                let num = if let ast::UnOp::Decrement { .. } = op { -1 } else  { 1 };
+
+                match inner {
+                    ExprResult::Plain(mir_def::Val::Var(v)) => {
+                        self.push_instr(mir_def::Instruction::Binary {
+                            op: mir_def::Binop::Add,
+                            src1: mir_def::Val::Var(v.clone()),
+                            src2: mir_def::Val::Num(mir_def::Const::Int(num)),
+                            dst: v.clone()
+                        });
+
+                        ExprResult::Plain(mir_def::Val::Var(v))
+                    },
+                    ExprResult::Plain(_) => unreachable!(),
+
+                    ExprResult::DerefedPtr(ptr) => {
+                        let tmp_v = self.gen_tmp_var(ty, symbol_table);
+
+                        self.push_instr(mir_def::Instruction::Load {
+                            src_ptr: ptr.clone(),
+                            dst: tmp_v.clone()
+                        });
+
+                        self.push_instr(mir_def::Instruction::Binary {
+                            op: mir_def::Binop::Add,
+                            src1: mir_def::Val::Var(tmp_v.clone()),
+                            src2: mir_def::Val::Num(mir_def::Const::Int(num)),
+                            dst: tmp_v.clone()
+                        });
+
+                        self.push_instr(mir_def::Instruction::Store {
+                            src: mir_def::Val::Var(tmp_v.clone()),
+                            dst_ptr: ptr
+                        });
+
+                        ExprResult::Plain(mir_def::Val::Var(tmp_v))
+                    },
+
+                    ExprResult::SubObject { base, offset } => {
+                        let tmp_v = self.gen_tmp_var(ty, symbol_table);
+
+                        self.push_instr(mir_def::Instruction::CopyFromOffset {
+                            src: base.clone(),
+                            offset: offset as i16,
+                            dst: tmp_v.clone()
+                        });
+
+                        self.push_instr(mir_def::Instruction::Binary {
+                            op: mir_def::Binop::Add,
+                            src1: mir_def::Val::Var(tmp_v.clone()),
+                            src2: mir_def::Val::Num(mir_def::Const::Int(num)),
+                            dst: tmp_v.clone()
+                        });
+
+                        self.push_instr(mir_def::Instruction::CopyToOffset {
+                            src: mir_def::Val::Var(tmp_v.clone()),
+                            offset: offset as i16,
+                            dst: base
+                        });
+
+                        ExprResult::Plain(mir_def::Val::Var(tmp_v))
+                    }
+                }
+            },
+            ast::DefaultExpr::Unary(op @ (ast::UnOp::Decrement { is_post: true } | ast::UnOp::Increment { is_post: true }), box inner) => {
+                let inner_ptr_ty = inner.ty.refed_ptr_ty().cloned();
+                
+                let dst = self.gen_tmp_var(inner.ty.clone(), symbol_table);
+                
+                let inner = self.generate_expr(inner, symbol_table);
+
+                let num = if let ast::UnOp::Decrement { .. } = op { -1 } else  { 1 };
+                let num = mir_def::Val::Num(mir_def::Const::Int(num));
+
+                match inner {
+                    ExprResult::Plain(mir_def::Val::Var(v)) => {
+                        self.push_instr(mir_def::Instruction::Copy {
+                            src: mir_def::Val::Var(v.clone()),
+                            dst: dst.clone()
+                        });
+
+                        if let Some(inner_ty) = inner_ptr_ty {
+                            self.push_instr(mir_def::Instruction::AddPtr {
+                                ptr: mir_def::Val::Var(v.clone()),
+                                idx: num,
+                                scale: inner_ty.size(self.type_table) as i16,
+                                dst: v.clone()
+                            });
+                        } else {
+                            self.push_instr(mir_def::Instruction::Binary {
+                                op: mir_def::Binop::Add,
+                                src1: mir_def::Val::Var(v.clone()),
+                                src2: num,
+                                dst: v.clone()
+                            });
+                        }
+                    },
+                    ExprResult::Plain(_) => unreachable!(),
+
+                    ExprResult::DerefedPtr(ptr) => {
+                        let tmp_v = self.gen_tmp_var(ty, symbol_table);
+
+                        self.push_instr(mir_def::Instruction::Load {
+                            src_ptr: ptr.clone(),
+                            dst: tmp_v.clone()
+                        });
+
+                        self.push_instr(mir_def::Instruction::Copy {
+                            src: mir_def::Val::Var(tmp_v.clone()),
+                            dst: dst.clone()
+                        });
+
+                        if let Some(inner_ty) = inner_ptr_ty {
+                            self.push_instr(mir_def::Instruction::AddPtr {
+                                ptr: mir_def::Val::Var(tmp_v.clone()),
+                                idx: num,
+                                scale: inner_ty.size(self.type_table) as i16,
+                                dst: tmp_v.clone()
+                            });
+                        } else {
+                            self.push_instr(mir_def::Instruction::Binary {
+                                op: mir_def::Binop::Add,
+                                src1: mir_def::Val::Var(tmp_v.clone()),
+                                src2: num,
+                                dst: tmp_v.clone()
+                            });
+                        }
+
+                        self.push_instr(mir_def::Instruction::Store {
+                            src: mir_def::Val::Var(tmp_v.clone()),
+                            dst_ptr: ptr
+                        });
+                    },
+
+                    ExprResult::SubObject { base, offset } => {
+                        let tmp_v = self.gen_tmp_var(ty, symbol_table);
+
+                        self.push_instr(mir_def::Instruction::CopyFromOffset {
+                            src: base.clone(),
+                            offset: offset as i16,
+                            dst: tmp_v.clone()
+                        });
+
+                        self.push_instr(mir_def::Instruction::Copy {
+                            src: mir_def::Val::Var(tmp_v.clone()),
+                            dst: dst.clone()
+                        });
+
+                        self.push_instr(mir_def::Instruction::Binary {
+                            op: mir_def::Binop::Add,
+                            src1: mir_def::Val::Var(tmp_v.clone()),
+                            src2: num,
+                            dst: tmp_v.clone()
+                        });
+
+                        self.push_instr(mir_def::Instruction::CopyToOffset {
+                            src: mir_def::Val::Var(tmp_v.clone()),
+                            offset: offset as i16,
+                            dst: base
+                        });
+                    }
+                }
+
+                ExprResult::Plain(mir_def::Val::Var(dst))
+            },
             ast::DefaultExpr::Unary(unop, box inner) => {
                 let op = match unop {
                     ast::UnOp::Complement => mir_def::Unop::Complement,
                     ast::UnOp::Negate => mir_def::Unop::Negate,
 
+                    ast::UnOp::Increment { .. } |
+                    ast::UnOp::Decrement { .. } |
                     ast::UnOp::AddressOf |
                     ast::UnOp::Dereference |
                     ast::UnOp::Not => unreachable!(),
@@ -892,7 +1044,7 @@ impl<'l> FunctionGenerator<'l> {
 
                 let tmp_name = self.gen_tmp_var(ty, symbol_table);
 
-                self.current_block.instructions.push(mir_def::Instruction::Unary {
+                self.push_instr(mir_def::Instruction::Unary {
                     op,
                     inner,
                     dst: tmp_name.clone()
@@ -938,7 +1090,7 @@ impl<'l> FunctionGenerator<'l> {
                 }
 
                 let v = self.generate_expr_and_convert(then_expr, symbol_table);
-                self.current_block.instructions.push(mir_def::Instruction::Copy {
+                self.push_instr(mir_def::Instruction::Copy {
                     src: v,
                     dst: ret.clone()
                 });
@@ -948,7 +1100,7 @@ impl<'l> FunctionGenerator<'l> {
                 self.new_block_w_id(false_label);
 
                 let v = self.generate_expr_and_convert(else_expr, symbol_table);
-                self.current_block.instructions.push(mir_def::Instruction::Copy {
+                self.push_instr(mir_def::Instruction::Copy {
                     src: v,
                     dst: ret.clone()
                 });
@@ -966,7 +1118,7 @@ impl<'l> FunctionGenerator<'l> {
 
                 let dst = self.gen_tmp_var(ty, symbol_table);
 
-                self.current_block.instructions.push(mir_def::Instruction::FunctionCall { name, args, dst: if void_ty { None } else { Some(dst.clone()) } });
+                self.push_instr(mir_def::Instruction::FunctionCall { name, args, dst: if void_ty { None } else { Some(dst.clone()) } });
 
                 ExprResult::Plain(mir_def::Val::Var(dst))
             },
@@ -985,20 +1137,20 @@ impl<'l> FunctionGenerator<'l> {
 
                 let dst = self.gen_tmp_var(t.clone(), symbol_table);
 
-                self.current_block.instructions.push(mir_def::Instruction::Copy { src: v, dst: dst.clone() });
+                self.push_instr(mir_def::Instruction::Copy { src: v, dst: dst.clone() });
 
                 ExprResult::Plain(mir_def::Val::Var(dst))
             },
             ast::DefaultExpr::Subscript(box (left, right)) => {
                 let inner_ty = left.ty.refed_ptr_ty().unwrap();
                 
-                let scale = get_size_of_type(inner_ty, self.type_table) as i16;
+                let scale = inner_ty.size(self.type_table) as i16;
                 let ptr = self.generate_expr_and_convert(left, symbol_table);
                 let idx = self.generate_expr_and_convert(right, symbol_table);
 
                 let dst = self.gen_tmp_var(ty, symbol_table);
 
-                self.current_block.instructions.push(mir_def::Instruction::AddPtr {
+                self.push_instr(mir_def::Instruction::AddPtr {
                     ptr,
                     idx,
                     scale,
@@ -1021,11 +1173,11 @@ impl<'l> FunctionGenerator<'l> {
                 ExprResult::Plain(mir_def::Val::Var(str_name))
             },
             ast::DefaultExpr::SizeOfT(ty) => {
-                ExprResult::Plain(mir_def::Val::Num(mir_def::Const::UInt(get_size_of_type(&ty, self.type_table))))
+                ExprResult::Plain(mir_def::Val::Num(mir_def::Const::UInt(ty.size(self.type_table))))
             },
             ast::DefaultExpr::SizeOf(inner) => {
                 let ty = inner.ty;
-                ExprResult::Plain(mir_def::Val::Num(mir_def::Const::UInt(get_size_of_type(&ty, self.type_table))))
+                ExprResult::Plain(mir_def::Val::Num(mir_def::Const::UInt(ty.size(self.type_table))))
             },
             ast::DefaultExpr::MemberAccess(box inner, item) => {
                 let struct_name = if let ast::Type::Struct(name) | ast::Type::Union(name) = &inner.ty { name } else { unreachable!() };
@@ -1044,7 +1196,7 @@ impl<'l> FunctionGenerator<'l> {
                     ExprResult::DerefedPtr(ptr) => {
                         let dst = self.gen_tmp_var(member.ty.clone(), symbol_table);
 
-                        self.current_block.instructions.push(mir_def::Instruction::AddPtr {
+                        self.push_instr(mir_def::Instruction::AddPtr {
                             ptr,
                             idx: mir_def::Val::Num(mir_def::Const::UInt(offset)),
                             scale: 1,
@@ -1069,7 +1221,7 @@ impl<'l> FunctionGenerator<'l> {
 
                 let dst = self.gen_tmp_var(ty, symbol_table);
 
-                self.current_block.instructions.push(mir_def::Instruction::AddPtr {
+                self.push_instr(mir_def::Instruction::AddPtr {
                     ptr: inner,
                     idx: mir_def::Val::Num(mir_def::Const::UInt(offset)),
                     scale: 1,

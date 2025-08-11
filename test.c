@@ -8,9 +8,11 @@ struct Node {
 };
 
 int main(void) {
-    struct Node n = {0};
+    struct Node n = { 0 };
 
-    n.inner = (struct IStoreStuff){ .a='\n' };
-
-    return n.inner.a;
+    int sum = 0;
+    for (int i=1;i<=10;i++) {
+        sum += i;
+    }
+    return ++sum;
 }

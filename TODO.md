@@ -5,7 +5,8 @@
   - [ ] make field and compound inits the same, since thats how it should be
   - [ ] enums
   - [ ] switch-case
-  - [ ] increment/decrement
+  - [x] increment/decrement
+  - [ ] size_t
   - [ ] IRIS only
     - [ ] floats
   - [ ] Variable length arguments
@@ -15,11 +16,24 @@
     - [ ] stdlib
       - [ ] malloc
       - [ ] free
+      - [ ] calloc
       - [ ] realloc
       - [ ] qsort
       - [ ] rand
       - [ ] rand_r
       - [ ] srand
+      - [ ] abort
+      - [ ] abs
+      - [ ] WHEN IRIS FLOATS
+        - [ ] atof
+      - [ ] atoi
+      - [ ] IF LONGS
+        - [ ] atol
+        - [ ] labs
+        - [ ] ldiv
+      - [ ] bsearch
+      - [ ] div
+      - [ ] exit
     - [ ] string
       - [ ] strcmp
       - [ ] strncmp

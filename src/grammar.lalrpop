@@ -415,6 +415,16 @@ PostfixTerm: Expr = {
     "(" <ty:TypeName> ")" <i: CompoundInit> => {
         Expr::new(DefaultExpr::CompoundLiteral(ty, Box::new(i)))
     },
+    <t:PrimaryTerm> "++" => {
+        let op = UnOp::Increment { is_post: true };
+
+        Expr::new(DefaultExpr::Unary(op, Box::new(t)))
+    },
+    <t:PrimaryTerm> "--" => {
+        let op = UnOp::Increment { is_post: true };
+
+        Expr::new(DefaultExpr::Unary(op, Box::new(t)))
+    },
 };
 
 PrimaryTerm: Expr = {
@@ -431,6 +441,8 @@ UnOp: UnOp = {
     "!" => UnOp::Not,
     "*" => UnOp::Dereference,
     "&" => UnOp::AddressOf,
+    "++" => UnOp::Increment { is_post: false },
+    "--" => UnOp::Increment { is_post: false },
 };
 
 AbstractDeclarator: AbstractDeclarator = {
