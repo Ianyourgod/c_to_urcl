@@ -3,7 +3,7 @@
 - [ ] Language features
   - [ ] write a preprocessor
   - [ ] make field and compound inits the same, since thats how it should be
-  - [ ] enums
+  - [x] enums
   - [ ] switch-case
   - [x] increment/decrement
   - [ ] size_t
