@@ -1,5 +1,6 @@
 use std::{collections::HashMap, fmt::Display};
 
+use crate::semantic_analysis::type_check::SymbolTable;
 pub use crate::Ident;
 pub use crate::semantic_analysis::type_check::StaticInit;
 pub use crate::ast::{Const, Type};
@@ -214,4 +215,13 @@ pub enum Unop {
 pub enum Val {
     Num(Const),
     Var(Ident),
+}
+
+impl Val {
+    pub fn get_type(&self, symbol_table: &SymbolTable) -> Type {
+        match self {
+            Val::Num(c) => c.to_type(),
+            Val::Var(v) => symbol_table.get(v).unwrap().ty.clone()
+        }
+    }
 }

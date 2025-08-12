@@ -556,9 +556,268 @@ impl Const {
             Self::EnumItem { enum_name, .. } => Type::Enum(enum_name.clone())
         }
     }
+
+    pub fn from_type(n: i32, ty: &Type) -> Self {
+        match ty {
+            Type::Fn { .. } |
+            Type::Pointer(_) |
+            Type::Void |
+            Type::Array(_, _) |
+            Type::Struct(_) |
+            Type::Union(_) |
+            Type::Enum(_) => panic!(),
+
+            Type::Int => Self::Int(n as i16),
+            Type::Char => Self::Char(n as i16),
+            Type::UInt => Self::UInt(n as u16),
+            Type::UChar => Self::UChar(n as u16)
+        }
+    }
+
+    pub fn add(self, other: Self) -> Self {
+        match (self, other) {
+            (Self::Int(n1), Self::Int(n2)) => {
+                Self::Int(n1.wrapping_add(n2))
+            },
+            (Self::Char(n1), Self::Char(n2)) => {
+                Self::Char(n1.wrapping_add(n2))
+            },
+            (Self::UInt(n1), Self::UInt(n2)) => {
+                Self::UInt(n1.wrapping_add(n2))
+            },
+            (Self::UChar(n1), Self::UChar(n2)) => {
+                Self::UChar(n1.wrapping_add(n2))
+            },
+
+            _ => panic!()
+        }
+    }
+
+    pub fn sub(self, other: Self) -> Self {
+        match (self, other) {
+            (Self::Int(n1), Self::Int(n2)) => {
+                Self::Int(n1.wrapping_sub(n2))
+            },
+            (Self::Char(n1), Self::Char(n2)) => {
+                Self::Char(n1.wrapping_sub(n2))
+            },
+            (Self::UInt(n1), Self::UInt(n2)) => {
+                Self::UInt(n1.wrapping_sub(n2))
+            },
+            (Self::UChar(n1), Self::UChar(n2)) => {
+                Self::UChar(n1.wrapping_sub(n2))
+            },
+
+            _ => panic!()
+        }
+    }
+
+    pub fn mul(self, other: Self) -> Self {
+        match (self, other) {
+            (Self::Int(n1), Self::Int(n2)) => {
+                Self::Int(n1.wrapping_mul(n2))
+            },
+            (Self::Char(n1), Self::Char(n2)) => {
+                Self::Char(n1.wrapping_mul(n2))
+            },
+            (Self::UInt(n1), Self::UInt(n2)) => {
+                Self::UInt(n1.wrapping_mul(n2))
+            },
+            (Self::UChar(n1), Self::UChar(n2)) => {
+                Self::UChar(n1.wrapping_mul(n2))
+            },
+
+            _ => panic!()
+        }
+    }
+
+    pub fn div(self, other: Self) -> Self {
+        match (self, other) {
+            (Self::Int(n1), Self::Int(n2)) => {
+                Self::Int(n1.wrapping_div(n2))
+            },
+            (Self::Char(n1), Self::Char(n2)) => {
+                Self::Char(n1.wrapping_div(n2))
+            },
+            (Self::UInt(n1), Self::UInt(n2)) => {
+                Self::UInt(n1.wrapping_div(n2))
+            },
+            (Self::UChar(n1), Self::UChar(n2)) => {
+                Self::UChar(n1.wrapping_div(n2))
+            },
+
+            _ => panic!()
+        }
+    }
+
+    pub fn modulus(self, other: Self) -> Self {
+        match (self, other) {
+            (Self::Int(n1), Self::Int(n2)) => {
+                Self::Int(n1.wrapping_rem(n2))
+            },
+            (Self::Char(n1), Self::Char(n2)) => {
+                Self::Char(n1.wrapping_rem(n2))
+            },
+            (Self::UInt(n1), Self::UInt(n2)) => {
+                Self::UInt(n1.wrapping_rem(n2))
+            },
+            (Self::UChar(n1), Self::UChar(n2)) => {
+                Self::UChar(n1.wrapping_div(n2))
+            },
+
+            _ => panic!()
+        }
+    }
+
+    pub fn shift_left(self, other: Self) -> Self {
+        match (self, other) {
+            (Self::Int(n1), Self::Int(n2)) => {
+                Self::Int(shl_i16(n1, n2))
+            },
+            (Self::Char(n1), Self::Char(n2)) => {
+                Self::Char(shl_i16(n1, n2))
+            },
+            (Self::UInt(n1), Self::UInt(n2)) => {
+                Self::UInt(n1.wrapping_shl(n2 as u32))
+            },
+            (Self::UChar(n1), Self::UChar(n2)) => {
+                Self::UChar(n1.wrapping_shl(n2 as u32))
+            },
+
+            _ => panic!()
+        }
+    }
+
+    pub fn shift_right(self, other: Self) -> Self {
+        match (self, other) {
+            (Self::Int(n1), Self::Int(n2)) => {
+                Self::Int(shl_i16(n1, -n2))
+            },
+            (Self::Char(n1), Self::Char(n2)) => {
+                Self::Char(shl_i16(n1, -n2))
+            },
+            (Self::UInt(n1), Self::UInt(n2)) => {
+                Self::UInt(n1.wrapping_shr(n2 as u32))
+            },
+            (Self::UChar(n1), Self::UChar(n2)) => {
+                Self::UChar(n1.wrapping_shr(n2 as u32))
+            },
+
+            _ => panic!()
+        }
+    }
+
+    pub fn bitwise_and(self, other: Self) -> Self {
+        match (self, other) {
+            (Self::Int(n1), Self::Int(n2)) => {
+                Self::Int(n1 & n2)
+            },
+            (Self::Char(n1), Self::Char(n2)) => {
+                Self::Char(n1 & n2)
+            },
+            (Self::UInt(n1), Self::UInt(n2)) => {
+                Self::UInt(n1 & n2)
+            },
+            (Self::UChar(n1), Self::UChar(n2)) => {
+                Self::UChar(n1 & n2)
+            },
+
+            _ => panic!()
+        }
+    }
+
+    pub fn bitwise_or(self, other: Self) -> Self {
+        match (self, other) {
+            (Self::Int(n1), Self::Int(n2)) => {
+                Self::Int(n1 | n2)
+            },
+            (Self::Char(n1), Self::Char(n2)) => {
+                Self::Char(n1 | n2)
+            },
+            (Self::UInt(n1), Self::UInt(n2)) => {
+                Self::UInt(n1 | n2)
+            },
+            (Self::UChar(n1), Self::UChar(n2)) => {
+                Self::UChar(n1 | n2)
+            },
+
+            _ => panic!()
+        }
+    }
+
+    pub fn bitwise_xor(self, other: Self) -> Self {
+        match (self, other) {
+            (Self::Int(n1), Self::Int(n2)) => {
+                Self::Int(n1 ^ n2)
+            },
+            (Self::Char(n1), Self::Char(n2)) => {
+                Self::Char(n1 ^ n2)
+            },
+            (Self::UInt(n1), Self::UInt(n2)) => {
+                Self::UInt(n1 ^ n2)
+            },
+            (Self::UChar(n1), Self::UChar(n2)) => {
+                Self::UChar(n1 ^ n2)
+            },
+
+            _ => panic!()
+        }
+    }
+
+    pub fn equals(self, other: Self) -> bool {
+        self == other
+    }
+
+    pub fn greater_than(self, other: Self) -> bool {
+        self.as_i32() > other.as_i32()
+    }
+
+    pub fn less_than(self, other: Self) -> bool {
+        self.as_i32() < other.as_i32()
+    }
+
+    pub fn as_i32(self) -> i32 {
+        match self {
+            Self::Char(n) |
+            Self::Int(n) => n as i32,
+            Self::UChar(n) |
+            Self::UInt(n) => n as i32,
+
+            Self::EnumItem { .. } => panic!()
+        }
+    }
+
+    pub fn complement(self) -> Self {
+        match self {
+            Self::Int(n) => Self::Int(!n),
+            Self::Char(n) => Self::Char(!n),
+            Self::UInt(n) => Self::UInt(!n),
+            Self::UChar(n) => Self::UChar(!n),
+
+            Self::EnumItem { .. } => panic!()
+        }
+    }
+
+    pub fn negate(self) -> Self {
+        match self {
+            Self::Int(n) => Self::Int(-n),
+            Self::Char(n) => Self::Char(-n),
+            Self::UInt(n) => Self::UInt(!n+1),
+            Self::UChar(n) => Self::UChar(!n+1),
+
+            Self::EnumItem { .. } => panic!()
+        }
+    }
 }
 
-
+#[inline]
+fn shl_i16(n1: i16, n2: i16) -> i16 {
+    if n2 >= 0 {
+        n1.wrapping_shl(n2 as u32)
+    } else {
+        n1.wrapping_shr((-n2) as u32)
+    }
+}
 
 #[derive(Debug, Clone)]
 pub enum Declarator {

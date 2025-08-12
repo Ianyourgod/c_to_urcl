@@ -4,7 +4,7 @@
   - [ ] write a preprocessor
   - [ ] make field and compound inits the same, since thats how it should be
   - [x] enums
-  - [ ] switch-case
+  - [x] switch-case
   - [x] increment/decrement
   - [ ] size_t
   - [ ] IRIS only
@@ -124,6 +124,7 @@
     - [ ] Copy propagation
     - [ ] Dead store elimination
       - [ ] maybe add volitile SCS too?
+    - [ ] basically implement all of [this stuff](https://www.cs.cornell.edu/courses/cs6120/2020fa/lesson/1/)
   - [ ] Assembly optimizations
     - [ ] Register allocation
     - [ ] During MIR->ASM, try and find an optimal order for the blocks

@@ -222,22 +222,9 @@ impl<'a, T: CPUDefinition> ASMGenerator<'a, T> {
         }
     }
 
+    // TODO! change all the calls of this to just use .get_type
     fn get_ty_from_val(&self, val: &mir_def::Val) -> mir_def::Type {
-        match val {
-            mir_def::Val::Num(n) => {
-                match n {
-                    mir_def::Const::Int(_) => mir_def::Type::Int,
-                    mir_def::Const::UInt(_) => mir_def::Type::UInt,
-                    mir_def::Const::Char(_) => mir_def::Type::Char,
-                    mir_def::Const::UChar(_) => mir_def::Type::UChar,
-
-                    mir_def::Const::EnumItem { .. } => unreachable!(),
-                }
-            },
-            mir_def::Val::Var(v) => {
-                self.get_ty_from_var(v)
-            }
-        }
+        val.get_type(&self.symbol_table)
     }
 
     #[inline]
