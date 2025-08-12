@@ -15,23 +15,11 @@ HLT
 .main
 	PSH $2
 	MOV $2 SP
-	SUB SP SP 3
+	SUB SP SP 0
 	// .lbl.gen.1.
 	.lbl.gen.1.
-	// ADD tmp.2. 2 2
-	ADD $7 2 2
-	LSTR $2 -1 $7
-	// MLT tmp.3. 4 16
-	MLT $7 4 16
-	LSTR $2 -2 $7
-	// ADD tmp.4. tmp.2. tmp.3.
-	LLOD $7 $2 -1
-	LLOD $8 $2 -2
-	ADD $7 $7 $8
-	LSTR $2 -3 $7
-	// MOV $1 tmp.4.
-	LLOD $7 $2 -3
-	MOV $1 $7
+	// MOV $1 50
+	MOV $1 50
 	// RET
 	MOV SP $2
 	POP $2

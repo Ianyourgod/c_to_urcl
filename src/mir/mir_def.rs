@@ -25,12 +25,24 @@ impl Display for GenericBlockID {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct Program {
     pub top_level: Vec<TopLevel>,
 }
 
-#[derive(Debug, Clone)]
+impl Program {
+    pub fn recalculate_predecessors(&mut self) {
+        self.top_level.iter_mut().for_each(|tl| {
+            match tl {
+                &mut TopLevel::Fn(ref mut f) => f.basic_blocks.recalculate_predecessors(),
+
+                _ => ()
+            }
+        });
+    }
+}
+
+#[derive(Debug, Clone, PartialEq)]
 pub enum TopLevel {
     Fn(Function),
     Var(StaticVariable),
@@ -41,7 +53,7 @@ pub enum TopLevel {
     },
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct Function {
     pub name: Ident,
     #[allow(unused)]
@@ -50,7 +62,7 @@ pub struct Function {
     pub basic_blocks: CFG,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct StaticVariable {
     pub name: Ident,
     pub global: bool,
@@ -59,17 +71,38 @@ pub struct StaticVariable {
     pub init: Vec<StaticInit>
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct CFG {
     pub blocks: HashMap<BlockID, BasicBlock>,
 }
 
-#[derive(Debug, Clone)]
+impl CFG {
+    pub fn recalculate_predecessors(&mut self) {
+        let mut preds_map = HashMap::new();
+        for id in self.blocks.keys().into_iter() {
+            preds_map.insert(*id, vec![]);
+        }
+
+        for (id, block) in &self.blocks {
+            block.get_successors().into_iter().for_each(|s| {
+                preds_map.get_mut(&s).unwrap().push(*id);
+            })
+        }
+
+        for (id, preds) in preds_map.into_iter() {
+            self.blocks.get_mut(&id).unwrap().set_predacessors(preds);
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq)]
 pub enum BasicBlock {
     Start {
-        successors: Vec<BlockID>
+        successors: Vec<BlockID>,
     },
-    End,
+    End {
+        predecessors: Vec<BlockID>,
+    },
     Generic(GenericBlock)
 }
 
@@ -78,16 +111,34 @@ impl BasicBlock {
         match self {
             BasicBlock::Generic(g) => g.terminator.get_successors(),
             BasicBlock::Start { successors } => successors.clone(),
-            BasicBlock::End => vec![]
+            BasicBlock::End { .. } => vec![]
+        }
+    }
+
+    pub fn get_predecessors(&self) -> Vec<BlockID> {
+        match self {
+            BasicBlock::End { predecessors } => predecessors.clone(),
+            BasicBlock::Start { .. } => vec![],
+            BasicBlock::Generic(b) => b.predecessors.clone(),
+        }
+    }
+
+    pub fn set_predacessors(&mut self, preds: Vec<BlockID>) {
+        match self {
+            BasicBlock::Generic(GenericBlock { predecessors, .. }) |
+            BasicBlock::End { predecessors } => *predecessors = preds,
+
+            BasicBlock::Start { .. } => ()
         }
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct GenericBlock {
     pub id: GenericBlockID,
     pub instructions: Vec<Instruction>,
-    pub terminator: Terminator
+    pub terminator: Terminator,
+    pub predecessors: Vec<BlockID>,
 }
 
 #[derive(Debug, Clone, Copy, Hash, PartialEq, Eq)]
@@ -97,7 +148,7 @@ pub enum BlockID {
     End
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub enum Instruction {
     Binary {
         op: Binop,
@@ -149,7 +200,7 @@ pub enum Instruction {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub enum Terminator {
     Return(Option<Val>),
     Jump {
@@ -175,7 +226,7 @@ impl Terminator {
 }
 
 #[allow(dead_code)]
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, PartialEq)]
 pub enum Cond {
     Equal,
     NotEqual,
@@ -185,7 +236,7 @@ pub enum Cond {
     LessThanEqual
 }
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, PartialEq)]
 pub enum Binop {
     Add,
     Sub,
@@ -205,13 +256,13 @@ pub enum Binop {
     GreaterEqual,
 }
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, PartialEq)]
 pub enum Unop {
     Complement,
     Negate,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub enum Val {
     Num(Const),
     Var(Ident),

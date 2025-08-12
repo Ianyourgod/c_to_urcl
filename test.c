@@ -1,3 +1,7 @@
 int main(void) {
-    return (2+2) + (4*16);
+    if (0) {
+        return 20;
+    }
+
+    return 50;
 }

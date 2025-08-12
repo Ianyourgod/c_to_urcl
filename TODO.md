@@ -119,8 +119,9 @@
     - [ ] everything else
 - [ ] optimizations
   - [ ] MIR optimizations
-    - [ ] Constant folding
-    - [ ] Unreachable code KILLING!!!
+    - [x] Constant folding
+    - [x] Unreachable code KILLING!!!
+    - [x] Block combining
     - [ ] Copy propagation
     - [ ] Dead store elimination
       - [ ] maybe add volitile SCS too?

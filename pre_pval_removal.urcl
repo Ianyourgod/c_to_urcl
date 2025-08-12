@@ -14,8 +14,5 @@ OUT %NUMB $2
 HLT
 .main
 	.lbl.gen.1.
-	ADD tmp.2. 2 2
-	MLT tmp.3. 4 16
-	ADD tmp.4. tmp.2. tmp.3.
-	MOV $1 tmp.4.
+	MOV $1 50
 	RET

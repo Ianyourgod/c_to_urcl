@@ -47,14 +47,15 @@ impl<'a> Folder<'a> {
 
     fn fold_block(&self, block: mir_def::BasicBlock) -> mir_def::BasicBlock {
         match block {
-            mir_def::BasicBlock::End |
+            mir_def::BasicBlock::End { .. } |
             mir_def::BasicBlock::Start { .. } => block,
 
             mir_def::BasicBlock::Generic(block) => {
                 mir_def::BasicBlock::Generic(mir_def::GenericBlock {
                     id: block.id,
                     instructions: block.instructions.into_iter().map(|i|self.fold_instr(i)).collect(),
-                    terminator: self.fold_terminator(block.terminator)
+                    terminator: self.fold_terminator(block.terminator),
+                    predecessors: block.predecessors,
                 })
             }
         }
@@ -147,6 +148,10 @@ impl<'a> Folder<'a> {
             mir_def::Terminator::Jump { .. } => term,
 
             mir_def::Terminator::JumpCond { target, fail, src1, src2, cond } => {
+                if target == fail {
+                    return mir_def::Terminator::Jump { target };
+                }
+                
                 let s1_c = self.is_const(&src1);
                 let s2_c = self.is_const(&src2);
 

@@ -135,7 +135,7 @@ impl<'l> FunctionGenerator<'l> {
         let id = mir_def::GenericBlockID::Generic(n);
 
         cfg.blocks.insert(mir_def::BlockID::Start, mir_def::BasicBlock::Start { successors: vec![mir_def::BlockID::Generic(id)] });
-        cfg.blocks.insert(mir_def::BlockID::End, mir_def::BasicBlock::End);
+        cfg.blocks.insert(mir_def::BlockID::End, mir_def::BasicBlock::End { predecessors: vec![] });
 
         Self {
             tmp_count,
@@ -150,7 +150,8 @@ impl<'l> FunctionGenerator<'l> {
         mir_def::GenericBlock {
             id,
             instructions: Vec::new(),
-            terminator: mir_def::Terminator::Return(Some(mir_def::Val::Num(mir_def::Const::Int(0))))
+            terminator: mir_def::Terminator::Return(Some(mir_def::Val::Num(mir_def::Const::Int(0)))),
+            predecessors: vec![]
         }
     }
 
