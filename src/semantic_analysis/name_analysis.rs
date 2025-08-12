@@ -265,9 +265,11 @@ impl Analyzer {
             (ty, self.add_new_name(param, context, false))
         }).collect();
 
+        let ret_ty = self.process_type(function.ret_ty, context);
+
         ast::FunctionDecl {
             name,
-            ret_ty: function.ret_ty,
+            ret_ty,
             params,
             block: function.block.map(|b|self.analyze_block(b, context)),
             storage_class: function.storage_class

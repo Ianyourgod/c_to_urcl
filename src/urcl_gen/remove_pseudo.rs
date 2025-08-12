@@ -214,7 +214,10 @@ impl<'a, T: CPUDefinition> RemovePseudo<'a, T> {
                             VarPosition::Label(v)
                         }
                         IdentifierAttrs::Fn { .. } |
-                        IdentifierAttrs::Local => unreachable!("{:?}", v)
+                        IdentifierAttrs::Local => {
+                            self.stack_offset += entry.ty.size(self.type_table) as u32;
+                            VarPosition::Stack(self.stack_offset)
+                        }
                     }
                 });
 
