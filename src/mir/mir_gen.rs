@@ -8,6 +8,7 @@ use crate::semantic_analysis::type_check::{IdentifierAttrs, InitialValue, Switch
 #[derive(Debug)]
 pub struct Generator<'s> {
     tmp_count: u32,
+    instr_id: u64,
     symbol_table: &'s mut SymbolTable,
     type_table: &'s TypeTable,
     switch_cases: SwitchCases,
@@ -17,6 +18,7 @@ impl<'s> Generator<'s> {
     pub fn new(symbol_table: &'s mut SymbolTable, type_table: &'s TypeTable, switch_cases: SwitchCases) -> Self {
         Self {
             tmp_count: 0,
+            instr_id: 0,
             symbol_table,
             type_table,
             switch_cases,
@@ -96,11 +98,13 @@ impl<'s> Generator<'s> {
 
     fn generate_function(&mut self, function: ast::FunctionDecl<TypedExpr>) -> Option<mir_def::Function> {
         let mut tmp_tmp_count = self.tmp_count;
-        let fn_gen = FunctionGenerator::new(&mut tmp_tmp_count, self.type_table, &mut self.switch_cases);
+        let mut tmp_instr_id = self.instr_id;
+        let fn_gen = FunctionGenerator::new(&mut tmp_tmp_count, &mut tmp_instr_id, self.type_table, &mut self.switch_cases);
 
         let f = fn_gen.generate(self.symbol_table, function);
 
         self.tmp_count = tmp_tmp_count;
+        self.instr_id = tmp_instr_id;
 
         f
     }
@@ -118,6 +122,7 @@ enum ExprResult {
 
 struct FunctionGenerator<'l> {
     tmp_count: &'l mut u32,
+    instr_id: &'l mut u64,
     cfg: mir_def::CFG,
     current_block: mir_def::GenericBlock,
     type_table: &'l TypeTable,
@@ -125,7 +130,7 @@ struct FunctionGenerator<'l> {
 }
 
 impl<'l> FunctionGenerator<'l> {
-    pub fn new(tmp_count: &'l mut u32, type_table: &'l TypeTable, switch_cases: &'l mut SwitchCases) -> Self {
+    pub fn new(tmp_count: &'l mut u32, instr_id: &'l mut u64, type_table: &'l TypeTable, switch_cases: &'l mut SwitchCases) -> Self {
         let mut cfg = mir_def::CFG {
             blocks: HashMap::new()
         };
@@ -137,20 +142,29 @@ impl<'l> FunctionGenerator<'l> {
         cfg.blocks.insert(mir_def::BlockID::Start, mir_def::BasicBlock::Start { successors: vec![mir_def::BlockID::Generic(id)] });
         cfg.blocks.insert(mir_def::BlockID::End, mir_def::BasicBlock::End { predecessors: vec![] });
 
+        let term_id = *instr_id;
+        *instr_id += 1;
+
         Self {
             tmp_count,
+            instr_id,
             cfg,
-            current_block: Self::temp_block_ns(id),
+            current_block: Self::temp_block_ns(id, term_id),
             type_table,
             switch_cases,
         }
     }
 
-    fn temp_block_ns(id: mir_def::GenericBlockID) -> mir_def::GenericBlock {
+    fn temp_block_ns(id: mir_def::GenericBlockID, instr_id: u64) -> mir_def::GenericBlock {
+        let terminator = mir_def::BTerminator {
+            id: instr_id,
+            term: mir_def::Terminator::Return(Some(mir_def::Val::Num(mir_def::Const::Int(0))))
+        };
+
         mir_def::GenericBlock {
             id,
             instructions: Vec::new(),
-            terminator: mir_def::Terminator::Return(Some(mir_def::Val::Num(mir_def::Const::Int(0)))),
+            terminator,
             predecessors: vec![]
         }
     }
@@ -284,10 +298,18 @@ impl<'l> FunctionGenerator<'l> {
         }
     }
 
+    fn set_terminator(&mut self, term: mir_def::Terminator) {
+        self.current_block.terminator = mir_def::BTerminator {
+            id: self.gen_instr_id(),
+            term
+        };
+    }
+
     fn generate_statement(&mut self, stmt: ast::Statement<TypedExpr>, symbol_table: &mut SymbolTable) {
         match stmt {
             ast::Statement::Return(expr) => {
-                self.current_block.terminator = mir_def::Terminator::Return(expr.map(|expr|self.generate_expr_and_convert(expr, symbol_table)));
+                let expr = expr.map(|expr|self.generate_expr_and_convert(expr, symbol_table));
+                self.set_terminator(mir_def::Terminator::Return(expr));
                 self.new_block();
             },
             ast::Statement::Expr(expr) => {
@@ -299,13 +321,13 @@ impl<'l> FunctionGenerator<'l> {
                 let cond_true_label = self.gen_block_id();
                 let cond_false_label = self.gen_block_id();
 
-                self.current_block.terminator = mir_def::Terminator::JumpCond {
+                self.set_terminator(mir_def::Terminator::JumpCond {
                     target: cond_false_label,
                     fail: cond_true_label,
                     src1: cond,
                     src2: mir_def::Val::Num(mir_def::Const::Int(0)),
                     cond: mir_def::Cond::Equal
-                };
+                });
 
                 self.new_block_w_id(cond_true_label);
 
@@ -313,14 +335,14 @@ impl<'l> FunctionGenerator<'l> {
 
                 if let Some(else_stmt) = else_stmt {
                     let end_label = self.gen_block_id();
-                    self.current_block.terminator = mir_def::Terminator::Jump { target: end_label };
+                    self.set_terminator(mir_def::Terminator::Jump { target: end_label });
                     self.new_block_w_id(cond_false_label);
                     self.generate_statement(else_stmt, symbol_table);
-                    self.current_block.terminator = mir_def::Terminator::Jump { target: end_label };
+                    self.set_terminator(mir_def::Terminator::Jump { target: end_label });
                     self.new_block_w_id(end_label);
 
                 } else {
-                    self.current_block.terminator = mir_def::Terminator::Jump { target: cond_false_label };
+                    self.set_terminator(mir_def::Terminator::Jump { target: cond_false_label });
                     self.new_block_w_id(cond_false_label);
                 }
             },
@@ -330,26 +352,26 @@ impl<'l> FunctionGenerator<'l> {
             ast::Statement::While(cond, box stmt, label) => {
                 let continue_label = self.gen_loop_block_id(label, false);
                 let break_label = self.gen_loop_block_id(label, true);
-                self.current_block.terminator = mir_def::Terminator::Jump { target: continue_label };
+                self.set_terminator(mir_def::Terminator::Jump { target: continue_label });
                 self.new_block_w_id(continue_label);
 
                 let cond = self.generate_expr_and_convert(cond, symbol_table);
 
                 let loop_label = self.gen_block_id();
 
-                self.current_block.terminator = mir_def::Terminator::JumpCond {
+                self.set_terminator(mir_def::Terminator::JumpCond {
                     target: break_label,
                     fail: loop_label,
                     src1: cond,
                     src2: mir_def::Val::Num(mir_def::Const::Int(0)),
                     cond: mir_def::Cond::Equal
-                };
+                });
 
                 self.new_block_w_id(loop_label);
 
                 self.generate_statement(stmt, symbol_table);
 
-                self.current_block.terminator = mir_def::Terminator::Jump { target: continue_label };
+                self.set_terminator(mir_def::Terminator::Jump { target: continue_label });
 
                 self.new_block_w_id(break_label);
             },
@@ -358,24 +380,24 @@ impl<'l> FunctionGenerator<'l> {
                 let break_label = self.gen_loop_block_id(label, true);
 
                 let loop_label = self.gen_block_id();
-                self.current_block.terminator = mir_def::Terminator::Jump { target: loop_label };
+                self.set_terminator(mir_def::Terminator::Jump { target: loop_label });
                 self.new_block_w_id(loop_label);
 
                 self.generate_statement(stmt, symbol_table);
 
-                self.current_block.terminator = mir_def::Terminator::Jump { target: continue_label };
+                self.set_terminator(mir_def::Terminator::Jump { target: continue_label });
 
                 self.new_block_w_id(continue_label);
 
                 let cond = self.generate_expr_and_convert(cond, symbol_table);
 
-                self.current_block.terminator = mir_def::Terminator::JumpCond {
+                self.set_terminator(mir_def::Terminator::JumpCond {
                     target: break_label,
                     fail: loop_label,
                     src1: cond,
                     src2: mir_def::Val::Num(mir_def::Const::Int(0)),
                     cond: mir_def::Cond::Equal
-                };
+                });
 
                 self.new_block_w_id(break_label);
             },
@@ -388,7 +410,7 @@ impl<'l> FunctionGenerator<'l> {
 
                 let start_label = self.gen_block_id();
 
-                self.current_block.terminator = mir_def::Terminator::Jump { target: start_label };
+                self.set_terminator(mir_def::Terminator::Jump { target: start_label });
 
                 self.new_block_w_id(start_label);
 
@@ -400,26 +422,26 @@ impl<'l> FunctionGenerator<'l> {
 
                     let new_block = self.gen_block_id();
 
-                    self.current_block.terminator = mir_def::Terminator::JumpCond {
+                    self.set_terminator(mir_def::Terminator::JumpCond {
                         target: break_label,
                         fail: new_block,
                         src1: cond,
                         src2: mir_def::Val::Num(mir_def::Const::Int(0)),
                         cond: mir_def::Cond::Equal
-                    };
+                    });
 
                     self.new_block_w_id(new_block);
                 }
 
                 self.generate_statement(body, symbol_table);
 
-                self.current_block.terminator = mir_def::Terminator::Jump { target: continue_label };
+                self.set_terminator(mir_def::Terminator::Jump { target: continue_label });
 
                 self.new_block_w_id(continue_label);
 
                 if let Some(post) = post { self.generate_expr_and_convert(post, symbol_table); }
 
-                self.current_block.terminator = mir_def::Terminator::Jump { target: start_label };
+                self.set_terminator(mir_def::Terminator::Jump { target: start_label });
 
                 self.new_block_w_id(break_label);
             },
@@ -435,38 +457,38 @@ impl<'l> FunctionGenerator<'l> {
 
                     let next = self.gen_block_id();
 
-                    self.current_block.terminator = mir_def::Terminator::JumpCond {
+                    self.set_terminator(mir_def::Terminator::JumpCond {
                         target: label,
                         fail: next,
                         src1: val.clone(),
                         src2: mir_def::Val::Num(num),
                         cond: mir_def::Cond::Equal
-                    };
+                    });
 
                     self.new_block_w_id(next);
                 }
 
                 let default_label = sc.1.map(|l|self.gen_loop_block_id(l, false));
 
-                self.current_block.terminator = mir_def::Terminator::Jump { target: default_label.unwrap_or(break_label) };
+                self.set_terminator(mir_def::Terminator::Jump { target: default_label.unwrap_or(break_label) });
 
                 self.generate_block(block, symbol_table);
 
-                self.current_block.terminator = mir_def::Terminator::Jump { target: break_label };
+                self.set_terminator(mir_def::Terminator::Jump { target: break_label });
 
                 self.new_block_w_id(break_label);
             },
             ast::Statement::Case(_, _, label) => {
                 let label = self.gen_loop_block_id(label, false);
 
-                self.current_block.terminator = mir_def::Terminator::Jump { target: label };
+                self.set_terminator(mir_def::Terminator::Jump { target: label });
 
                 self.new_block_w_id(label);
             },
             ast::Statement::Default(_, label) => {
                 let label = self.gen_loop_block_id(label, false);
 
-                self.current_block.terminator = mir_def::Terminator::Jump { target: label };
+                self.set_terminator(mir_def::Terminator::Jump { target: label });
 
                 self.new_block_w_id(label);
             }
@@ -474,12 +496,12 @@ impl<'l> FunctionGenerator<'l> {
 
             ast::Statement::Break(label) => {
                 let label = self.gen_loop_block_id(label, true);
-                self.current_block.terminator = mir_def::Terminator::Jump { target: label };
+                self.set_terminator(mir_def::Terminator::Jump { target: label });
                 self.new_block();
             },
             ast::Statement::Continue(label) => {
                 let label = self.gen_loop_block_id(label, false);
-                self.current_block.terminator = mir_def::Terminator::Jump { target: label };
+                self.set_terminator(mir_def::Terminator::Jump { target: label });
                 self.new_block();
             },
         }
@@ -491,9 +513,10 @@ impl<'l> FunctionGenerator<'l> {
     }
 
     fn new_block_w_id(&mut self, id: mir_def::GenericBlockID) {
+        let instr_id = self.gen_instr_id();
         let block = std::mem::replace(
             &mut self.current_block,
-            Self::temp_block_ns(id)
+            Self::temp_block_ns(id, instr_id)
         );
 
         self.cfg.blocks.insert(
@@ -527,7 +550,17 @@ impl<'l> FunctionGenerator<'l> {
     }
 
     fn push_instr(&mut self, instr: mir_def::Instruction) {
+        let id = self.gen_instr_id();
+        let instr = mir_def::BInstruction {
+            id,
+            instr
+        };
         self.current_block.instructions.push(instr)
+    }
+
+    fn gen_instr_id(&mut self) -> mir_def::InstrID {
+        *self.instr_id += 1;
+        *self.instr_id
     }
 
     fn generate_expr_and_convert(&mut self, expr: ast::TypedExpr, symbol_table: &mut SymbolTable) -> mir_def::Val {
@@ -737,31 +770,31 @@ impl<'l> FunctionGenerator<'l> {
 
                 self.push_instr(mir_def::Instruction::Copy { src: mir_def::Val::Num(mir_def::Const::Int(0)), dst: res.clone() });
 
-                self.current_block.terminator = mir_def::Terminator::JumpCond {
+                self.set_terminator(mir_def::Terminator::JumpCond {
                     target: first_true_id,
                     fail: false_id,
                     src1: left,
                     src2: mir_def::Val::Num(mir_def::Const::Int(0)),
                     cond: mir_def::Cond::NotEqual
-                };
+                });
 
                 self.new_block_w_id(first_true_id);
 
                 let right = self.generate_expr_and_convert(right, symbol_table);
 
-                self.current_block.terminator = mir_def::Terminator::JumpCond {
+                self.set_terminator(mir_def::Terminator::JumpCond {
                     target: true_id,
                     fail: false_id,
                     src1: right,
                     src2: mir_def::Val::Num(mir_def::Const::Int(0)),
                     cond: mir_def::Cond::NotEqual
-                };
+                });
 
                 self.new_block_w_id(true_id);
 
                 self.push_instr(mir_def::Instruction::Copy { src: mir_def::Val::Num(mir_def::Const::Int(1)), dst: res.clone() });
 
-                self.current_block.terminator = mir_def::Terminator::Jump { target: false_id };
+                self.set_terminator(mir_def::Terminator::Jump { target: false_id });
 
                 self.new_block_w_id(false_id);
 
@@ -780,31 +813,31 @@ impl<'l> FunctionGenerator<'l> {
 
                 self.push_instr(mir_def::Instruction::Copy { src: mir_def::Val::Num(mir_def::Const::Int(1)), dst: res.clone() });
 
-                self.current_block.terminator = mir_def::Terminator::JumpCond {
+                self.set_terminator(mir_def::Terminator::JumpCond {
                     target: first_false_id,
                     fail: true_id,
                     src1: left,
                     src2: mir_def::Val::Num(mir_def::Const::Int(0)),
                     cond: mir_def::Cond::Equal
-                };
+                });
 
                 self.new_block_w_id(first_false_id);
 
                 let right = self.generate_expr_and_convert(right, symbol_table);
 
-                self.current_block.terminator = mir_def::Terminator::JumpCond {
+                self.set_terminator(mir_def::Terminator::JumpCond {
                     target: false_id,
                     fail: true_id,
                     src1: right,
                     src2: mir_def::Val::Num(mir_def::Const::Int(0)),
                     cond: mir_def::Cond::Equal
-                };
+                });
 
                 self.new_block_w_id(false_id);
 
                 self.push_instr(mir_def::Instruction::Copy { src: mir_def::Val::Num(mir_def::Const::Int(0)), dst: res.clone() });
 
-                self.current_block.terminator = mir_def::Terminator::Jump { target: true_id };
+                self.set_terminator(mir_def::Terminator::Jump { target: true_id });
 
                 self.new_block_w_id(true_id);
 
@@ -857,19 +890,19 @@ impl<'l> FunctionGenerator<'l> {
                 let set_true = self.gen_block_id();
                 let f = self.gen_block_id();
 
-                self.current_block.terminator = mir_def::Terminator::JumpCond {
+                self.set_terminator(mir_def::Terminator::JumpCond {
                     target: set_true,
                     fail: f,
                     src1: inner,
                     src2: mir_def::Val::Num(mir_def::Const::Int(0)),
                     cond: mir_def::Cond::Equal
-                };
+                });
 
                 self.new_block_w_id(set_true);
 
                 self.push_instr(mir_def::Instruction::Copy { src: mir_def::Val::Num(mir_def::Const::Int(1)), dst: res.clone() });
 
-                self.current_block.terminator = mir_def::Terminator::Jump { target: f };
+                self.set_terminator(mir_def::Terminator::Jump { target: f });
 
                 self.new_block_w_id(f);
 
@@ -1119,26 +1152,26 @@ impl<'l> FunctionGenerator<'l> {
                 let false_label = self.gen_block_id();
                 let end_label = self.gen_block_id();
 
-                self.current_block.terminator = mir_def::Terminator::JumpCond {
+                self.set_terminator(mir_def::Terminator::JumpCond {
                     target: false_label,
                     fail: true_label,
                     src1: cond,
                     src2: mir_def::Val::Num(mir_def::Const::Int(0)),
                     cond: mir_def::Cond::Equal
-                };
+                });
 
                 self.new_block_w_id(true_label);
 
                 if is_void {
                     self.generate_expr_and_convert(then_expr, symbol_table);
                     
-                    self.current_block.terminator = mir_def::Terminator::Jump { target: end_label };
+                    self.set_terminator(mir_def::Terminator::Jump { target: end_label });
 
                     self.new_block_w_id(false_label);
 
                     self.generate_expr_and_convert(else_expr, symbol_table);
 
-                    self.current_block.terminator = mir_def::Terminator::Jump { target: end_label };
+                    self.set_terminator(mir_def::Terminator::Jump { target: end_label });
 
                     self.new_block_w_id(end_label);
 
@@ -1151,7 +1184,7 @@ impl<'l> FunctionGenerator<'l> {
                     dst: ret.clone()
                 });
 
-                self.current_block.terminator = mir_def::Terminator::Jump { target: end_label };
+                self.set_terminator(mir_def::Terminator::Jump { target: end_label });
 
                 self.new_block_w_id(false_label);
 
@@ -1161,7 +1194,7 @@ impl<'l> FunctionGenerator<'l> {
                     dst: ret.clone()
                 });
 
-                self.current_block.terminator = mir_def::Terminator::Jump { target: end_label };
+                self.set_terminator(mir_def::Terminator::Jump { target: end_label });
 
                 self.new_block_w_id(end_label);
 

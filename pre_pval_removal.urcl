@@ -14,5 +14,9 @@ OUT %NUMB $2
 HLT
 .main
 	.lbl.gen.1.
-	MOV $1 50
+	MOV tmp.2. 27
+	MOV tmp.3. 13
+	MOV tmp.4. 18
+	MOV tmp.5. 3
+	MOV $1 3
 	RET

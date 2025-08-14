@@ -30,18 +30,6 @@ pub struct Program {
     pub top_level: Vec<TopLevel>,
 }
 
-impl Program {
-    pub fn recalculate_predecessors(&mut self) {
-        self.top_level.iter_mut().for_each(|tl| {
-            match tl {
-                &mut TopLevel::Fn(ref mut f) => f.basic_blocks.recalculate_predecessors(),
-
-                _ => ()
-            }
-        });
-    }
-}
-
 #[derive(Debug, Clone, PartialEq)]
 pub enum TopLevel {
     Fn(Function),
@@ -109,7 +97,7 @@ pub enum BasicBlock {
 impl BasicBlock {
     pub fn get_successors(&self) -> Vec<BlockID> {
         match self {
-            BasicBlock::Generic(g) => g.terminator.get_successors(),
+            BasicBlock::Generic(g) => g.terminator.term.get_successors(),
             BasicBlock::Start { successors } => successors.clone(),
             BasicBlock::End { .. } => vec![]
         }
@@ -136,8 +124,8 @@ impl BasicBlock {
 #[derive(Debug, Clone, PartialEq)]
 pub struct GenericBlock {
     pub id: GenericBlockID,
-    pub instructions: Vec<Instruction>,
-    pub terminator: Terminator,
+    pub instructions: Vec<BInstruction>,
+    pub terminator: BTerminator,
     pub predecessors: Vec<BlockID>,
 }
 
@@ -146,6 +134,14 @@ pub enum BlockID {
     Generic(GenericBlockID),
     Start,
     End
+}
+
+pub type InstrID = u64;
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct BInstruction {
+    pub id: InstrID,
+    pub instr: Instruction,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -198,6 +194,12 @@ pub enum Instruction {
         offset: i16,
         dst: Ident,
     }
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct BTerminator {
+    pub id: InstrID,
+    pub term: Terminator,
 }
 
 #[derive(Debug, Clone, PartialEq)]

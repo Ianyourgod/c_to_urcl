@@ -1,9 +1,9 @@
 use crate::{mir::mir_def, semantic_analysis::type_check::SymbolTable, Ident};
 
-pub fn fold_program(mir: mir_def::Program, symbol_table: &SymbolTable) -> mir_def::Program {
+pub fn fold_cfg(cfg: mir_def::CFG, symbol_table: &SymbolTable) -> mir_def::CFG {
     let folder = Folder::new(symbol_table);
 
-    folder.fold_program(mir)
+    folder.fold_cfg(cfg)
 }
 
 pub struct Folder<'a> {
@@ -17,31 +17,11 @@ impl<'a> Folder<'a> {
         }
     }
 
-    pub fn fold_program(&self, mir: mir_def::Program) -> mir_def::Program {
-        mir_def::Program {
-            top_level: mir.top_level.into_iter().map(|tl| {
-                match tl {
-                    mir_def::TopLevel::Var(_) |
-                    mir_def::TopLevel::Const { .. } => tl,
-
-                    mir_def::TopLevel::Fn(func) => {
-                        mir_def::TopLevel::Fn(self.fold_function(func))
-                    }
-                }
+    fn fold_cfg(&self, cfg: mir_def::CFG) -> mir_def::CFG {
+        mir_def::CFG {
+            blocks: cfg.blocks.into_iter().map(|block| {
+                (block.0, self.fold_block(block.1))
             }).collect()
-        }
-    }
-
-    fn fold_function(&self, func: mir_def::Function) -> mir_def::Function {
-        mir_def::Function {
-            name: func.name,
-            global: func.global,
-            params: func.params,
-            basic_blocks: mir_def::CFG {
-                blocks: func.basic_blocks.blocks.into_iter().map(|block| {
-                    (block.0, self.fold_block(block.1))
-                }).collect()
-            }
         }
     }
 
@@ -53,8 +33,16 @@ impl<'a> Folder<'a> {
             mir_def::BasicBlock::Generic(block) => {
                 mir_def::BasicBlock::Generic(mir_def::GenericBlock {
                     id: block.id,
-                    instructions: block.instructions.into_iter().map(|i|self.fold_instr(i)).collect(),
-                    terminator: self.fold_terminator(block.terminator),
+                    instructions: block.instructions.into_iter().map(|i|{
+                        mir_def::BInstruction {
+                            id: i.id,
+                            instr: self.fold_instr(i.instr)
+                        }
+                    }).collect(),
+                    terminator: mir_def::BTerminator {
+                        id: block.terminator.id,
+                        term: self.fold_terminator(block.terminator.term),
+                    },
                     predecessors: block.predecessors,
                 })
             }

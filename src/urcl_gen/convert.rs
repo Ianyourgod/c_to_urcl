@@ -175,8 +175,8 @@ impl<'a, T: CPUDefinition> ASMGenerator<'a, T> {
 
         instructions.push(asm::Instr::Label(block.id));
 
-        block.instructions.into_iter().for_each(|i|self.instr_to_asm(i, instructions));
-        self.term_to_asm(block.terminator, instructions);
+        block.instructions.into_iter().for_each(|i|self.instr_to_asm(i.instr, instructions));
+        self.term_to_asm(block.terminator.term, instructions);
     }
 
     fn mir_binop_to_asm(&self, op: mir_def::Binop, ty: &mir_def::Type) -> (asm::Binop, bool) {

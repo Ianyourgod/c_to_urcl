@@ -1,20 +1,7 @@
 use crate::mir::mir_def;
 
-pub fn combine_program(program: mir_def::Program) -> mir_def::Program {
-    mir_def::Program {
-        top_level: program.top_level.into_iter().map(|tl| {
-            match tl {
-                mir_def::TopLevel::Fn(func) => mir_def::TopLevel::Fn(combine_func(func)),
-
-                mir_def::TopLevel::Const { .. } |
-                mir_def::TopLevel::Var(_) => tl
-            }
-        }).collect()
-    }
-}
-
-fn combine_func(function: mir_def::Function) -> mir_def::Function {
-    let mut blocks = function.basic_blocks.blocks;
+pub fn combine_cfg(cfg: mir_def::CFG) -> mir_def::CFG {
+    let mut blocks = cfg.blocks;
 
     let mut blocks_iter = blocks.iter();
 
@@ -51,10 +38,5 @@ fn combine_func(function: mir_def::Function) -> mir_def::Function {
         }
     }
 
-    mir_def::Function {
-        name: function.name,
-        global: function.global,
-        params: function.params,
-        basic_blocks: mir_def::CFG { blocks }
-    }
+    mir_def::CFG { blocks }
 }
