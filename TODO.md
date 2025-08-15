@@ -123,7 +123,7 @@
     - [x] Unreachable code KILLING!!!
     - [x] Block combining
     - [x] Copy propagation
-    - [ ] Dead store elimination
+    - [x] Dead store elimination
       - [ ] maybe add volitile SCS too?
     - [ ] basically implement all of [this stuff](https://www.cs.cornell.edu/courses/cs6120/2020fa/lesson/1/)
   - [ ] Assembly optimizations
