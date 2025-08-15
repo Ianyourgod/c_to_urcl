@@ -89,7 +89,7 @@ where
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct Function<V>
 where
     V: Display
@@ -111,7 +111,7 @@ where
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub enum Instr<V>
 where
     V: Display
@@ -166,7 +166,7 @@ where
     Ret,
 }
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, PartialEq)]
 pub enum Cond {
     SLessThan,
     SGreaterThan,
@@ -212,7 +212,7 @@ impl Cond {
     }
 }
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, PartialEq)]
 pub enum Binop {
     Add,
     Sub,
@@ -228,7 +228,7 @@ pub enum Binop {
     Set(Cond),
 }
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, PartialEq)]
 pub enum Unop {
     BitwiseNot,
     Negate,
@@ -327,7 +327,7 @@ where
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub enum Val {
     Imm(i32), // this is i32 so that we can have i16 and u16 fine in here
     Reg(Reg),
@@ -346,7 +346,7 @@ impl Display for Val {
     }
 }
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, PartialEq)]
 pub enum Reg {
     Normal(u8),
     SP,

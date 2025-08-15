@@ -12,84 +12,45 @@ OUT %TEXT 45
 ABS $2 $1
 OUT %NUMB $2
 HLT
-.do_some_stuff
-	PSH $2
-	MOV $2 SP
-	SUB SP SP 4
-	// MOV .na.gen.a.2 $3
-	MOV $7 $3
-	LSTR $2 -1 $7
-	// .lbl.gen.1.
-	.lbl.gen.1.
-	// MLT tmp.2. 0 1
-	MLT $7 0 1
-	LSTR $2 -2 $7
-	// ADD tmp.2. .na.gen.a.2 tmp.2.
-	LLOD $7 $2 -1
-	LLOD $8 $2 -2
-	ADD $7 $7 $8
-	LSTR $2 -2 $7
-	// LSTR tmp.2. 0 4
-	LLOD $9 $2 -2
-	LSTR $9 0 4
-	// MLT tmp.5. 0 1
-	MLT $7 0 1
-	LSTR $2 -3 $7
-	// ADD tmp.5. .na.gen.a.2 tmp.5.
-	LLOD $7 $2 -1
-	LLOD $8 $2 -3
-	ADD $7 $7 $8
-	LSTR $2 -3 $7
-	// LLOD tmp.6. tmp.5. 0
-	LLOD $8 $2 -3
-	LLOD $7 $8 0
-	LSTR $2 -4 $7
-	// BRE .lbl.gen.7. tmp.6. 0
-	LLOD $7 $2 -4
-	BRE .lbl.gen.7. $7 0
-	// JMP .lbl.gen.8.
-	JMP .lbl.gen.8.
-	// .lbl.gen.7.
-	.lbl.gen.7.
-	// JMP .lbl.gen.8.
-	JMP .lbl.gen.8.
-	// .lbl.gen.8.
-	.lbl.gen.8.
-	// RET
-	MOV SP $2
-	POP $2
-	RET
 .main
 	PSH $2
 	MOV $2 SP
 	SUB SP SP 4
-	// .lbl.gen.12.
-	.lbl.gen.12.
-	// __LEA .conv.asm.v.1. .na.gen.a.3
-	SUB $7 $2 2
+	MOV $7 0
 	LSTR $2 -1 $7
-	// LSTR .conv.asm.v.1. 0 2
-	LLOD $9 $2 -1
-	LSTR $9 0 2
-	// __LEA tmp.13. .na.gen.a.3
-	SUB $7 $2 2
+	.lbl.gen.2.
+	LLOD $7 $2 -1
+	SSETLE $7 $7 264
+	LSTR $2 -2 $7
+	LLOD $7 $2 -2
+	AND $7 $7 1
+	LSTR $2 -2 $7
+	LLOD $7 $2 -2
+	BRE .lbl.lbreak.2. $7 0
+	LLOD $7 $2 -1
+	LLOD $8 $2 -1
+	MLT $7 $7 $8
 	LSTR $2 -3 $7
-	// MOV $3 tmp.13.
 	LLOD $7 $2 -3
-	MOV $3 $7
-	// CAL .do_some_stuff
-	CAL .do_some_stuff
-	// __LEA $8 .na.gen.a.3
-	SUB $8 $2 2
-	// LLOD $8 $8 0
-	LLOD $8 $8 0
-	// MOV tmp.15. $8
-	MOV $7 $8
+	SETE $7 $7 529
 	LSTR $2 -4 $7
-	// MOV $1 tmp.15.
 	LLOD $7 $2 -4
+	AND $7 $7 1
+	LSTR $2 -4 $7
+	LLOD $7 $2 -4
+	BRE .lbl.gen.9. $7 0
+	LLOD $7 $2 -1
 	MOV $1 $7
-	// RET
+	MOV SP $2
+	POP $2
+	RET
+	.lbl.gen.9.
+	LLOD $7 $2 -1
+	ADD $7 $7 1
+	LSTR $2 -1 $7
+	JMP .lbl.gen.2.
+	.lbl.lbreak.2.
+	MOV $1 0
 	MOV SP $2
 	POP $2
 	RET

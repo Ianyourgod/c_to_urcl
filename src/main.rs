@@ -33,6 +33,8 @@ fn main() {
 
     //println!("{:#?}", mir);
 
+    write_to_file(&mir.to_string(), "output.mir");
+
     let backend = urcl_gen::cpu_definitions::IRIS::new();
     let asm = urcl_gen::mir_to_asm(mir, &mut symbol_table, &type_table, &backend);
 

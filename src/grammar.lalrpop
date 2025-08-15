@@ -431,7 +431,7 @@ PostfixTerm: Expr = {
         Expr::new(DefaultExpr::Unary(op, Box::new(t)))
     },
     <t:PrimaryTerm> "--" => {
-        let op = UnOp::Increment { is_post: true };
+        let op = UnOp::Decrement { is_post: true };
 
         Expr::new(DefaultExpr::Unary(op, Box::new(t)))
     },
@@ -452,7 +452,7 @@ UnOp: UnOp = {
     "*" => UnOp::Dereference,
     "&" => UnOp::AddressOf,
     "++" => UnOp::Increment { is_post: false },
-    "--" => UnOp::Increment { is_post: false },
+    "--" => UnOp::Decrement { is_post: false },
 };
 
 AbstractDeclarator: AbstractDeclarator = {

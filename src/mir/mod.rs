@@ -1,5 +1,6 @@
 pub mod mir_def;
 pub mod mir_gen;
+mod pretty_print;
 mod optimizations;
 
 use crate::{ast, semantic_analysis::type_check::{SwitchCases, SymbolTable, TypeTable}};

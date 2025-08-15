@@ -81,7 +81,7 @@ impl<'a, T: CPUDefinition> RemovePseudo<'a, T> {
         const PVAL_SRC2: u8 = 8;
         const PVAL_SRC3: u8 = 9;
 
-        instructions.push(asm::Instr::Comment(instruction.to_string()));
+        //instructions.push(asm::Instr::Comment(instruction.to_string()));
         
         match instruction {
             asm::Instr::Binary { binop, src1, src2, dst } => {

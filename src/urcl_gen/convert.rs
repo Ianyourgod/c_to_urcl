@@ -1,4 +1,4 @@
-use std::collections::{HashSet, VecDeque};
+use std::collections::{HashMap, HashSet, VecDeque};
 use std::rc::Rc;
 
 use crate::urcl_gen::{asm, cpu_definitions::CPUDefinition};
@@ -151,22 +151,11 @@ impl<'a, T: CPUDefinition> ASMGenerator<'a, T> {
     }
 
     fn cfg_to_asm(&mut self, cfg: mir_def::CFG, instructions: &mut Vec<asm::Instr<asm::PVal>>) {
-        let mut worklist = VecDeque::new();
-        worklist.push_front(mir_def::BlockID::Start);
+        let orderer = BlockOrdering::new();
+        let worklist = orderer.get_worklist(cfg);
 
-        let mut done = HashSet::new();
-
-        while let Some(block) = worklist.pop_front() {
-            let block = cfg.blocks.get(&block).unwrap();
-
-            for successor in block.get_successors() {
-                if !done.contains(&successor) {
-                    worklist.push_back(successor);
-                    done.insert(successor);
-                }
-            }
-
-            self.block_to_asm(block.clone(), instructions);
+        for block in worklist {
+            self.block_to_asm(block, instructions);
         }
     }
 
@@ -679,5 +668,74 @@ impl<'a, T: CPUDefinition> ASMGenerator<'a, T> {
                 dst: dst.clone()
             });
         });
+    }
+}
+
+struct BlockOrdering {
+    label_counts: HashMap<mir_def::GenericBlockID, u64>,
+}
+
+impl BlockOrdering {
+    pub fn new() -> Self {
+        Self {
+            label_counts: HashMap::new()
+        }
+    }
+
+    pub fn get_worklist(mut self, mut cfg: mir_def::CFG) -> Vec<mir_def::BasicBlock> {
+        self.count_labels(&cfg);
+        
+        let mut worklist = VecDeque::new();
+        worklist.push_front(mir_def::BlockID::Start);
+
+        let mut done = HashSet::new();
+
+        let mut list = Vec::new();
+
+        while let Some(block) = worklist.pop_front() {
+            let block = cfg.blocks.remove(&block).unwrap();
+
+            for successor in block.get_successors() {
+                if !done.contains(&successor) {
+                    if cfg.blocks.get(&successor).unwrap().get_predecessors().len() == 1 {
+                        worklist.push_front(successor);
+                    } else {
+                        worklist.push_back(successor);
+                    }
+                    done.insert(successor);
+                }
+            }
+
+            list.push(block);
+        }
+
+        list
+    }
+
+    fn insert_label(&mut self, label: mir_def::GenericBlockID) {
+        *self.label_counts.entry(label).or_insert(0) += 1;
+    }
+
+    fn count_labels(&mut self, cfg: &mir_def::CFG) {
+        cfg.blocks.values().for_each(|block| {
+            match block {
+                mir_def::BasicBlock::Generic(block) => {
+                    self.get_term_labels(&block.terminator.term);
+                },
+
+                _ => ()
+            }
+        });
+    }
+
+    fn get_term_labels(&mut self, term: &mir_def::Terminator) {
+        match term {
+            mir_def::Terminator::Jump { target } => self.insert_label(*target),
+            mir_def::Terminator::JumpCond { target, fail, .. } => {
+                self.insert_label(*target);
+                self.insert_label(*fail);
+            },
+            mir_def::Terminator::Return(_) => ()
+        }
     }
 }

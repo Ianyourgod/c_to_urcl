@@ -1,6 +1,7 @@
 pub mod asm;
 mod convert;
 mod remove_pseudo;
+mod optimizations;
 pub mod cpu_definitions;
 
 use crate::{mir::mir_def, semantic_analysis::type_check::{SymbolTable, TypeTable}};
@@ -18,8 +19,10 @@ pub fn mir_to_asm<'a, T: cpu_definitions::CPUDefinition>(mir: mir_def::Program, 
 
     let no_pvals = remove_pseudo::fix_pvals(initial, symbol_table, type_table, backend);
 
+    let optimized = optimizations::optimize(no_pvals);
+
     asm::Program {
         cpu: backend,
-        top_level_items: no_pvals.top_level_items
+        top_level_items: optimized.top_level_items
     }
 }
