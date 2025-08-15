@@ -26,6 +26,8 @@ pub fn optimize(mir: Program, symbol_table: &SymbolTable) -> Program {
 
                     let aliased = pointer_analysis::find_aliased(&cfg, symbol_table).into_iter().cloned().collect();
 
+                    cfg.recalculate_predecessors();
+
                     cfg = copy_propagation::propagate_cfg(cfg, symbol_table, &aliased);
 
                     cfg = dead_store::dead_store_fix_cfg(cfg, symbol_table, &aliased);

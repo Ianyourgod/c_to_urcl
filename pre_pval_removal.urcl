@@ -12,7 +12,30 @@ OUT %TEXT 45
 ABS $2 $1
 OUT %NUMB $2
 HLT
-.main
+.do_some_stuff
+	MOV .na.gen.a.2 $3
 	.lbl.gen.1.
-	MOV $1 11
+	MLT tmp.2. 0 1
+	ADD tmp.2. .na.gen.a.2 tmp.2.
+	LSTR tmp.2. 0 4
+	MLT tmp.5. 0 1
+	ADD tmp.5. .na.gen.a.2 tmp.5.
+	LLOD tmp.6. tmp.5. 0
+	BRE .lbl.gen.7. tmp.6. 0
+	JMP .lbl.gen.8.
+	.lbl.gen.7.
+	JMP .lbl.gen.8.
+	.lbl.gen.8.
+	RET
+.main
+	.lbl.gen.12.
+	__LEA .conv.asm.v.1. .na.gen.a.3
+	LSTR .conv.asm.v.1. 0 2
+	__LEA tmp.13. .na.gen.a.3
+	MOV $3 tmp.13.
+	CAL .do_some_stuff
+	__LEA $8 .na.gen.a.3
+	LLOD $8 $8 0
+	MOV tmp.15. $8
+	MOV $1 tmp.15.
 	RET

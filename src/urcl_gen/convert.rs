@@ -42,7 +42,9 @@ impl<'a, T: CPUDefinition> ASMGenerator<'a, T> {
                             ret_ty.as_ref().clone()
                         } else { unreachable!() };
 
-                        let return_in_mem = ret_ty.size(self.type_table) > 1;
+                        let return_in_mem = if ret_ty != mir_def::Type::Void {
+                            ret_ty.size(self.type_table) > 1
+                        } else { false };
 
                         self.current_return_var = if return_in_mem {
                             let var = self.make_tmp_var(ret_ty);

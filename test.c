@@ -1,3 +1,15 @@
+struct SomeStuff {
+    int do_shit;
+};
+
+void do_some_stuff(struct SomeStuff *a) {
+    a->do_shit = 4;
+    while (!a->do_shit) {}
+    return;
+}
+
 int main(void) {
-    return 4*5*7/3*21%15+5;
+    struct SomeStuff a = { .do_shit=2 };
+    do_some_stuff(&a);
+    return a.do_shit;
 }
