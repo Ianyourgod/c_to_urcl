@@ -1,4 +1,13 @@
 use crate::mir::mir_def;
+/*
+TODO! combine blocks that are just like:
+.a
+jmp .b
+.b
+...
+
+this will require changing all references to .a with .b
+*/
 
 pub fn combine_cfg(cfg: mir_def::CFG) -> mir_def::CFG {
     let mut blocks = cfg.blocks;

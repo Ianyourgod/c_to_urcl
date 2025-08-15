@@ -5,6 +5,7 @@ mod constant_folding;
 mod unreachable_elimination;
 mod combine_blocks;
 mod copy_propagation;
+mod dead_store;
 
 pub fn optimize(mir: Program, symbol_table: &SymbolTable) -> Program {
     let program = mir.top_level.into_iter().map(|tl|
@@ -26,6 +27,8 @@ pub fn optimize(mir: Program, symbol_table: &SymbolTable) -> Program {
                     let aliased = pointer_analysis::find_aliased(&cfg, symbol_table).into_iter().cloned().collect();
 
                     cfg = copy_propagation::propagate_cfg(cfg, symbol_table, &aliased);
+
+                    cfg = dead_store::dead_store_fix_cfg(cfg, symbol_table, &aliased);
 
                     if cfg == program_copy {
                         break;

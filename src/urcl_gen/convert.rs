@@ -286,13 +286,13 @@ impl<'a, T: CPUDefinition> ASMGenerator<'a, T> {
                     instructions.push(asm::Instr::Binary { binop: asm::Binop::And, src1: dst.clone(), src2: asm::PVal::Imm(1), dst })
                 }
             },
-            mir_def::Instruction::Unary { op, inner, dst } => {
+            mir_def::Instruction::Unary { op, src, dst } => {
                 let unop = match op {
                     mir_def::Unop::Complement => asm::Unop::BitwiseNot,
                     mir_def::Unop::Negate => asm::Unop::Negate
                 };
 
-                let src = self.val_to_asm(inner, instructions);
+                let src = self.val_to_asm(src, instructions);
 
                 instructions.push(asm::Instr::Unary { unop, src, dst: asm::PVal::Var(dst) });
             },

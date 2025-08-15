@@ -1,3 +1,3 @@
 int main(void) {
-    return (3*9/2+5)%5;
+    return 4*5*7/3*21%15+5;
 }

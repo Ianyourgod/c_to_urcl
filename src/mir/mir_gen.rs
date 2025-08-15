@@ -1129,13 +1129,13 @@ impl<'l> FunctionGenerator<'l> {
                     ast::UnOp::Not => unreachable!(),
                 };
 
-                let inner = self.generate_expr_and_convert(inner, symbol_table);
+                let src = self.generate_expr_and_convert(inner, symbol_table);
 
                 let tmp_name = self.gen_tmp_var(ty, symbol_table);
 
                 self.push_instr(mir_def::Instruction::Unary {
                     op,
-                    inner,
+                    src,
                     dst: tmp_name.clone()
                 });
 

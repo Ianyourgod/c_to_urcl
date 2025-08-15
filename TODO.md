@@ -122,7 +122,7 @@
     - [x] Constant folding
     - [x] Unreachable code KILLING!!!
     - [x] Block combining
-    - [ ] Copy propagation
+    - [x] Copy propagation
     - [ ] Dead store elimination
       - [ ] maybe add volitile SCS too?
     - [ ] basically implement all of [this stuff](https://www.cs.cornell.edu/courses/cs6120/2020fa/lesson/1/)

@@ -154,7 +154,7 @@ pub enum Instruction {
     },
     Unary {
         op: Unop,
-        inner: Val,
+        src: Val,
         dst: Ident
     },
     Copy {
@@ -193,6 +193,25 @@ pub enum Instruction {
         src: Ident,
         offset: i16,
         dst: Ident,
+    }
+}
+
+impl Instruction {
+    pub fn get_dst(&self) -> Option<&Ident> {
+        match self {
+            Instruction::Binary { dst, .. } |
+            Instruction::AddPtr { dst, .. } |
+            Instruction::Unary { dst, .. } |
+            Instruction::Copy { dst, .. } |
+            Instruction::GetAddress { dst, .. } |
+            Instruction::Load { dst, .. } |
+            Instruction::CopyToOffset { dst, .. } |
+            Instruction::CopyFromOffset { dst, .. } |
+            Instruction::FunctionCall { dst: Some(dst), .. } => Some(dst),
+
+            Instruction::Store { .. } | // it has dst_ptr but won't worry about that...
+            Instruction::FunctionCall { .. } => None,
+        }
     }
 }
 

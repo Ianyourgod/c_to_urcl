@@ -141,6 +141,7 @@ impl<'a> Propagator<'a> {
             }
         }
         self.annotate_instr(block.terminator.id, current_copies.clone());
+        // terminator doesn't have dst so we don't need to change current copies
 
         self.annotate_block(block.id, current_copies);
     }
@@ -289,9 +290,9 @@ impl<'a> Propagator<'a> {
 
                         mir_def::Instruction::Copy { src, dst }
                     },
-                    mir_def::Instruction::Unary { op, inner, dst } => {
+                    mir_def::Instruction::Unary { op, src: inner, dst } => {
                         let inner = Self::replace_operand(inner, copies);
-                        mir_def::Instruction::Unary { op, inner, dst }
+                        mir_def::Instruction::Unary { op, src: inner, dst }
                     },
                     mir_def::Instruction::Binary { op, src1, src2, dst } => {
                         let src1 = Self::replace_operand(src1, copies);

@@ -593,20 +593,42 @@ impl TypeChecker {
                 out
             },
             (_, ast::Type::Array(_, _)) => panic!("Cannot initialize array to non-compound"),
-            (ast::Initializer::Single(Expr(DefaultExpr::Constant(c))), _) => vec![self.const_to_init(c)],
+            (ast::Initializer::Single(Expr(DefaultExpr::Constant(c))), ty) => vec![self.const_to_init(c, ty)],
             (_, _) => panic!("Invalid static init"),
         }
     }
 
-    fn const_to_init(&self, c: ast::Const) -> StaticInit {
-        // TODO! we don't check that pointers are 0
+    fn const_to_init(&self, c: ast::Const, ty: &Type) -> StaticInit {
+        let is_ptr = ty.is_pointer_type();
+
         match c {
-            ast::Const::Int(n) => StaticInit::IntInit(n),
-            ast::Const::UInt(n) => StaticInit::UIntInit(n),
-            ast::Const::Char(n) => StaticInit::CharInit(n),
-            ast::Const::UChar(n) => StaticInit::UCharInit(n),
+            ast::Const::Int(n) => {
+                if is_ptr && n != 0 {
+                    panic!("Cannot have non-null pointer constant")
+                }
+                StaticInit::IntInit(n)
+            },
+            ast::Const::UInt(n) => {
+                if is_ptr && n != 0 {
+                    panic!("Cannot have non-null pointer constant")
+                }
+                StaticInit::UIntInit(n)
+            },
+            ast::Const::Char(n) => {
+                if is_ptr && n != 0 {
+                    panic!("Cannot have non-null pointer constant")
+                }
+                StaticInit::CharInit(n)
+            },
+            ast::Const::UChar(n) => {
+                StaticInit::UCharInit(n)
+            },
             ast::Const::EnumItem { item, enum_name } => {
                 let n = self.type_table.enums.get(&enum_name).unwrap().iter().position(|e|*e==item).unwrap() as u16;
+
+                if is_ptr && n != 0 {
+                    panic!("Cannot have non-null pointer constant")
+                }
 
                 StaticInit::UIntInit(n)
             }
@@ -629,7 +651,7 @@ impl TypeChecker {
                     inits.into_iter().chain(std::iter::repeat(StaticInit::ZeroInit).take(needed_zeros)).collect()
                 },
                 (ast::Initializer::Compound(_), _) => panic!("Cannot use compound on non-compound type"),
-                (ast::Initializer::Single(Expr(DefaultExpr::Constant(c))), _) => vec![self.const_to_init(c)],
+                (ast::Initializer::Single(Expr(DefaultExpr::Constant(c))), ty) => vec![self.const_to_init(c, ty)],
                 (_, _) => panic!("You did something wrong with a compound static init")
             }
         }).collect()

@@ -83,7 +83,7 @@ impl<'a> Folder<'a> {
                     }
                 }
             },
-            mir_def::Instruction::Unary { op, inner, dst } => {
+            mir_def::Instruction::Unary { op, src: inner, dst } => {
                 if let Some(src) = self.is_const(&inner) {
                     mir_def::Instruction::Copy {
                         src: mir_def::Val::Num(match op {
@@ -95,7 +95,7 @@ impl<'a> Folder<'a> {
                 } else {
                     mir_def::Instruction::Unary {
                         op,
-                        inner,
+                        src: inner,
                         dst
                     }
                 }
