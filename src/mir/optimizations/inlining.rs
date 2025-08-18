@@ -331,7 +331,72 @@ impl<'l> Inliner<'l> {
     ) -> (HashMap<mir_def::BlockID, mir_def::BasicBlock>, mir_def::GenericBlockID) 
     {
         let func = &self.fn_graph.fns.get(fn_name).unwrap().func;
-        let mut cfg = func.basic_blocks.clone();
+        let cfg = func.basic_blocks.clone();
+
+        let label_map = cfg.blocks.keys().map(|id|(id.clone(), {
+            if matches!(id, mir_def::BlockID::Start | mir_def::BlockID::End) {
+                id.clone()
+            } else {
+                mir_def::BlockID::Generic(self.gen_block_id())
+            }
+        })).collect::<HashMap<_, _>>();
+
+        // haha get fucked borrow checker
+        let func = &self.fn_graph.fns.get(fn_name).unwrap().func;
+
+        let cfg = cfg.blocks.into_iter().map(|(old_id, mut block)| {
+            let new_id = label_map.get(&old_id).unwrap();
+
+            match &mut block {
+                mir_def::BasicBlock::Generic(block) => {
+                    let term = std::mem::replace(&mut block.terminator.term, mir_def::Terminator::Return(None));
+
+                    block.id = match new_id {
+                        mir_def::BlockID::Generic(g) => g.clone(),
+                        _ => unreachable!()
+                    };
+
+                    block.terminator.term = match term {
+                        mir_def::Terminator::Jump { target } => {
+                            let target = label_map.get(&mir_def::BlockID::Generic(target)).unwrap();
+                            let target = match target {
+                                mir_def::BlockID::Generic(t) => t.clone(),
+                                _ => unreachable!()
+                            };
+                            mir_def::Terminator::Jump { target }
+                        },
+                        mir_def::Terminator::JumpCond { target, fail, src1, src2, cond } => {
+                            let target = label_map.get(&mir_def::BlockID::Generic(target)).unwrap();
+                            let target = match target {
+                                mir_def::BlockID::Generic(t) => t.clone(),
+                                _ => unreachable!()
+                            };
+
+                            let fail = label_map.get(&mir_def::BlockID::Generic(fail)).unwrap();
+                            let fail = match fail {
+                                mir_def::BlockID::Generic(t) => t.clone(),
+                                _ => unreachable!()
+                            };
+
+                            mir_def::Terminator::JumpCond { target, fail, src1, src2, cond }
+                        },
+                        mir_def::Terminator::Return(_) => term
+                    };
+                },
+                mir_def::BasicBlock::Start { successors } => {
+                    let sucs = std::mem::replace(successors, HashSet::new());
+
+                    *successors = sucs.into_iter().map(|s|label_map.get(&s).unwrap().clone()).collect();
+                }
+                _ => ()
+            }
+
+            (new_id.clone(), block)
+        }).collect();
+        
+        let mut cfg = mir_def::CFG {
+            blocks: cfg
+        };
 
         cfg.recalculate_predecessors();
 

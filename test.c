@@ -8,6 +8,6 @@ int sqrt(int i) {
 }
 
 int main(void) {
-    int i = 529;
+    int i = 0;
     return sqrt(i);
 }
