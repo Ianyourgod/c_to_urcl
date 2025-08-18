@@ -12,37 +12,100 @@ OUT %TEXT 45
 ABS $2 $1
 OUT %NUMB $2
 HLT
-.main
+.sqrt
 	PSH $2
 	MOV $2 SP
-	SUB SP SP 0
-	MOV $1 24492
+	SUB SP SP 6
+	MOV $7 $3
+	LSTR $2 -1 $7
+	MOV $7 0
+	LSTR $2 -2 $7
+	.lbl.gen.2.
+	LLOD $7 $2 -1
+	SDIV $7 $7 2
+	LSTR $2 -3 $7
+	LLOD $7 $2 -2
+	LLOD $8 $2 -3
+	SSETLE $7 $7 $8
+	LSTR $2 -4 $7
+	LLOD $7 $2 -4
+	AND $7 $7 1
+	LSTR $2 -4 $7
+	LLOD $7 $2 -4
+	BRE .lbl.lbreak.2. $7 0
+	JMP .lbl.gen.5.
+	.lbl.lbreak.2.
+	MOV $1 -1
 	MOV SP $2
 	POP $2
 	RET
-.expensive
-	PSH $2
-	MOV $2 SP
-	SUB SP SP 5
-	MOV $7 $3
-	LSTR $2 -1 $7
-	LLOD $7 $2 -1
-	LLOD $8 $2 -1
-	MLT $7 $7 $8
-	LSTR $2 -2 $7
+	.lbl.gen.5.
 	LLOD $7 $2 -2
-	LLOD $8 $2 -1
-	ADD $7 $7 $8
-	LSTR $2 -3 $7
-	LLOD $7 $2 -3
-	LLOD $8 $2 -3
+	LLOD $8 $2 -2
 	MLT $7 $7 $8
-	LSTR $2 -4 $7
-	LLOD $7 $2 -4
-	LLOD $8 $2 -3
-	ADD $7 $7 $8
 	LSTR $2 -5 $7
 	LLOD $7 $2 -5
+	LLOD $8 $2 -1
+	SETE $7 $7 $8
+	LSTR $2 -6 $7
+	LLOD $7 $2 -6
+	AND $7 $7 1
+	LSTR $2 -6 $7
+	LLOD $7 $2 -6
+	BRE .lbl.gen.9. $7 0
+	JMP .lbl.gen.8.
+	.lbl.gen.9.
+	LLOD $7 $2 -2
+	ADD $7 $7 1
+	LSTR $2 -2 $7
+	JMP .lbl.gen.2.
+	.lbl.gen.8.
+	LLOD $7 $2 -2
+	MOV $1 $7
+	MOV SP $2
+	POP $2
+	RET
+.main
+	PSH $2
+	MOV $2 SP
+	SUB SP SP 1
+	MOV $7 0
+	LSTR $2 -2 $7
+	.lbl.gen.2.
+	LLOD $7 $2 -2
+	SSETLE $7 $7 264
+	LSTR $2 -4 $7
+	LLOD $7 $2 -4
+	AND $7 $7 1
+	LSTR $2 -4 $7
+	LLOD $7 $2 -4
+	BRE .lbl.lbreak.2. $7 0
+	LLOD $7 $2 -2
+	LLOD $8 $2 -2
+	MLT $7 $7 $8
+	LSTR $2 -5 $7
+	LLOD $7 $2 -5
+	SETE $7 $7 529
+	LSTR $2 -6 $7
+	LLOD $7 $2 -6
+	AND $7 $7 1
+	LSTR $2 -6 $7
+	LLOD $7 $2 -6
+	BRE .lbl.gen.9. $7 0
+	LLOD $7 $2 -2
+	MOV $7 $7
+	LSTR $2 -1 $7
+	JMP .lbl.gen.19.
+	.lbl.gen.9.
+	LLOD $7 $2 -2
+	ADD $7 $7 1
+	LSTR $2 -2 $7
+	JMP .lbl.gen.2.
+	.lbl.lbreak.2.
+	MOV $7 -1
+	LSTR $2 -1 $7
+	.lbl.gen.19.
+	LLOD $7 $2 -1
 	MOV $1 $7
 	MOV SP $2
 	POP $2

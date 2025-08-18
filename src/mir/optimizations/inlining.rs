@@ -2,7 +2,7 @@ use std::collections::{HashMap, HashSet};
 
 use crate::mir::mir_def;
 
-const BASE_INSTRUCTION_LIMIT: usize = 500;
+const BASE_INSTRUCTION_LIMIT: usize = 200;
 
 pub fn inline(program: Vec<mir_def::TopLevel>, instr_count: &mut u64, tmp_count: &mut u64) -> Vec<mir_def::TopLevel> {
     let inliner = Inliner::new(instr_count, tmp_count);

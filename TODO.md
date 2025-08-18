@@ -126,8 +126,11 @@
     - [x] Dead store elimination
       - [ ] maybe add volitile SCS too?
     - [x] inlining
+    - [ ] optimize sets followed by branches
+      - like `LTE a 2 -> b; BRH EQ b 0 .1 .2` -> `BRH LTE a 2 .2 .1`
     - [ ] basically implement all of [this stuff](https://www.cs.cornell.edu/courses/cs6120/2020fa/lesson/1/)
   - [ ] Assembly optimizations
     - [ ] Register allocation
     - [x] During MIR->ASM, try and find an optimal order for the blocks
+      - [ ] maybe make this better
     - [ ] Basically reimplement ModPunchTree's Optimizer V2 (on Vals, not PVals)
