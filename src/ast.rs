@@ -133,20 +133,20 @@ pub enum Statement<E> {
     Expr(E),
     If(E, Box<(Statement<E>, Option<Statement<E>>)>),
     Block(Block<E>),
-    While(E, Box<Statement<E>>, u32),
-    DoWhile(E, Box<Statement<E>>, u32),
+    While(E, Box<Statement<E>>, u64),
+    DoWhile(E, Box<Statement<E>>, u64),
     For {
         init: ForInit<E>,
         cond: Option<E>,
         post: Option<E>,
         body: Box<Statement<E>>,
-        label: u32,
+        label: u64,
     },
-    Break(u32),
-    Continue(u32),
-    Switch(E, Block<E>, u32),
-    Case(E, u32, u32),
-    Default(u32, u32),
+    Break(u64),
+    Continue(u64),
+    Switch(E, Block<E>, u64),
+    Case(E, u64, u64),
+    Default(u64, u64),
 }
 
 #[derive(Debug, Clone)]

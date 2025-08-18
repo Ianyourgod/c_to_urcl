@@ -134,7 +134,7 @@ impl SymbolTable {
     }
 }
 
-pub type SwitchCases = HashMap<u32, (HashSet<(ast::Const, u32)>, Option<u32>)>;
+pub type SwitchCases = HashMap<u64, (HashSet<(ast::Const, u64)>, Option<u64>)>;
 
 pub struct TypeChecker {
     symbol_table: SymbolTable,

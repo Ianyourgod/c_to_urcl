@@ -1,19 +1,12 @@
 main():
-	JMP Generic(Generic(1))
-	gen.9:
-		ADD .na.gen.a.2 1 -> .na.gen.a.2
-		JMP gen.2
-	gen.2:
-		LTE .na.gen.a.2 264 -> tmp.4.
-		BRH EQ lbreak.2 tmp.4. 0 ELSE gen.5
-	gen.5:
-		MUL .na.gen.a.2 .na.gen.a.2 -> tmp.6.
-		EQ tmp.6. 529 -> tmp.7.
-		BRH EQ gen.9 tmp.7. 0 ELSE gen.8
+	JMP Generic(Generic(8))
 	gen.8:
-		RETURN .na.gen.a.2
-	lbreak.2:
-		RETURN 0
+		RETURN 24492
+expensive(.na.gen.x.1):
+	JMP Generic(Generic(1))
 	gen.1:
-		COPY 0 -> .na.gen.a.2
-		JMP gen.2
+		MUL .na.gen.x.1 .na.gen.x.1 -> tmp.2.
+		ADD tmp.2. .na.gen.x.1 -> tmp.3.
+		MUL tmp.3. tmp.3. -> tmp.4.
+		ADD tmp.4. tmp.3. -> tmp.5.
+		RETURN tmp.5.

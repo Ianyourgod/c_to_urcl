@@ -13,26 +13,15 @@ ABS $2 $1
 OUT %NUMB $2
 HLT
 .main
-	.lbl.gen.1.
-	MOV .na.gen.a.2 0
-	JMP .lbl.gen.2.
-	.lbl.gen.2.
-	SSETLE tmp.4. .na.gen.a.2 264
-	AND tmp.4. tmp.4. 1
-	BRE .lbl.lbreak.2. tmp.4. 0
-	JMP .lbl.gen.5.
-	.lbl.gen.5.
-	MLT tmp.6. .na.gen.a.2 .na.gen.a.2
-	SETE tmp.7. tmp.6. 529
-	AND tmp.7. tmp.7. 1
-	BRE .lbl.gen.9. tmp.7. 0
-	JMP .lbl.gen.8.
 	.lbl.gen.8.
-	MOV $1 .na.gen.a.2
+	MOV $1 24492
 	RET
-	.lbl.gen.9.
-	ADD .na.gen.a.2 .na.gen.a.2 1
-	JMP .lbl.gen.2.
-	.lbl.lbreak.2.
-	MOV $1 0
+.expensive
+	MOV .na.gen.x.1 $3
+	.lbl.gen.1.
+	MLT tmp.2. .na.gen.x.1 .na.gen.x.1
+	ADD tmp.3. tmp.2. .na.gen.x.1
+	MLT tmp.4. tmp.3. tmp.3.
+	ADD tmp.5. tmp.4. tmp.3.
+	MOV $1 tmp.5.
 	RET

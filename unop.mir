@@ -1,0 +1,20 @@
+expensive(.na.gen.x.1):
+	JMP Generic(Generic(1))
+	gen.1:
+		MUL .na.gen.x.1 .na.gen.x.1 -> tmp.2.
+		ADD tmp.2. .na.gen.x.1 -> tmp.3.
+		COPY tmp.3. -> .na.gen.x.1
+		MUL .na.gen.x.1 .na.gen.x.1 -> tmp.4.
+		ADD tmp.4. .na.gen.x.1 -> tmp.5.
+		COPY tmp.5. -> .na.gen.x.1
+		RETURN .na.gen.x.1
+	gen.6:
+		RETURN 0
+main():
+	JMP Generic(Generic(8))
+	gen.10:
+		RETURN 0
+	gen.8:
+		COPY 12 -> .na.gen.i.2
+		expensive(.na.gen.i.2, ) -> tmp.9.
+		RETURN tmp.9.

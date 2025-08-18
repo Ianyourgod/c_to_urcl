@@ -161,21 +161,26 @@ impl<'a> DeadStoreFixer<'a> {
 
     fn meet(&self, block: &mir_def::GenericBlock, all_statics: &HashSet<mir_def::Ident>) -> HashSet<mir_def::Ident> {
         let mut live_vars = HashSet::new();
-        
-        for succ in block.terminator.term.get_successors() {
-            match succ {
-                mir_def::BlockID::End => live_vars = live_vars.union(all_statics).cloned().collect(),
-                mir_def::BlockID::Start => unreachable!(),
 
-                mir_def::BlockID::Generic(id) => {
-                    let other = self.get_block_annotation(&id).unwrap();
-
-                    live_vars = live_vars.union(other).cloned().collect();
-                }
-            }
-        }
+        let sucs = block.terminator.term.get_successors();
+        self.meet_successor(sucs.0, &mut live_vars, all_statics);
+        if let Some(s) = sucs.1 { self.meet_successor(s, &mut live_vars, all_statics); }
 
         live_vars
+    }
+
+
+    fn meet_successor(&self, succ: mir_def::BlockID, live_vars: &mut HashSet<mir_def::Ident>, all_statics: &HashSet<mir_def::Ident>) {
+        match succ {
+            mir_def::BlockID::End => *live_vars = live_vars.union(all_statics).cloned().collect(),
+            mir_def::BlockID::Start => unreachable!(),
+
+            mir_def::BlockID::Generic(id) => {
+                let other = self.get_block_annotation(&id).unwrap();
+
+                *live_vars = live_vars.union(other).cloned().collect();
+            }
+        }
     }
 
     fn get_all_statics(&self) -> HashSet<mir_def::Ident> {

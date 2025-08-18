@@ -89,10 +89,9 @@ impl<'a> Propagator<'a> {
                     }
 
                     let dst_as_val = mir_def::Val::Var(dst.clone());
-                    let src_as_ident = if let mir_def::Val::Var(v) = src { Some(v) } else { None };
 
                     current_copies = current_copies.into_iter().filter(|copy| {
-                        !(copy.src == dst_as_val || Some(&copy.dst) == src_as_ident)
+                        !(copy.src == dst_as_val || copy.dst == *dst)
                     }).collect();
 
                     let src_ty = src.get_type(self.symbol_table);
@@ -229,7 +228,7 @@ impl<'a> Propagator<'a> {
             self.transfer(block, incoming);
 
             if old_annotation != *self.get_block_annotation(&block.id).unwrap() {
-                for successor in block.terminator.term.get_successors() {
+                for successor in block.terminator.term.get_successors_as_vec() {
                     let successor = cfg.blocks.get(&successor).unwrap();
                     
                     match successor {

@@ -1,3 +1,4 @@
+use std::collections::HashSet;
 use std::{collections::HashMap, fmt::Display};
 
 use crate::semantic_analysis::type_check::SymbolTable;
@@ -7,9 +8,9 @@ pub use crate::ast::{Const, Type};
 
 #[derive(Debug, Clone, Copy, Hash, PartialEq, Eq)]
 pub enum GenericBlockID {
-    Generic(u32),
-    LoopBreak(u32),
-    LoopContinue(u32),
+    Generic(u64),
+    LoopBreak(u64),
+    LoopContinue(u64),
 }
 
 impl Display for GenericBlockID {
@@ -68,50 +69,70 @@ impl CFG {
     pub fn recalculate_predecessors(&mut self) {
         let mut preds_map = HashMap::new();
         for id in self.blocks.keys().into_iter() {
-            preds_map.insert(*id, vec![]);
+            preds_map.insert(*id, HashSet::new());
         }
 
         for (id, block) in &self.blocks {
             block.get_successors().into_iter().for_each(|s| {
-                preds_map.get_mut(&s).unwrap().push(*id);
+                preds_map.get_mut(&s).unwrap().insert(*id);
             })
         }
 
         for (id, preds) in preds_map.into_iter() {
-            self.blocks.get_mut(&id).unwrap().set_predacessors(preds);
+            self.blocks.get_mut(&id).unwrap().set_predecessors(preds);
         }
+    }
+
+    pub fn get_total_instructions(&self) -> usize {
+        let mut size = 0;
+        for b in self.blocks.values() {
+            if let BasicBlock::Generic(block) = b {
+                size += block.instructions.len() + 1; // +1 for terminator
+            }
+        }
+        size
     }
 }
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum BasicBlock {
     Start {
-        successors: Vec<BlockID>,
+        successors: HashSet<BlockID>,
     },
     End {
-        predecessors: Vec<BlockID>,
+        predecessors: HashSet<BlockID>,
     },
     Generic(GenericBlock)
 }
 
 impl BasicBlock {
-    pub fn get_successors(&self) -> Vec<BlockID> {
+    // TODO! make this not clone every time
+    pub fn get_successors(&self) -> HashSet<BlockID> {
         match self {
-            BasicBlock::Generic(g) => g.terminator.term.get_successors(),
+            BasicBlock::Generic(g) => {
+                let mut s = HashSet::new();
+                let (a, b) = g.terminator.term.get_successors();
+
+                s.insert(a);
+                if let Some(b) = b { s.insert(b); }
+
+                s
+            },
             BasicBlock::Start { successors } => successors.clone(),
-            BasicBlock::End { .. } => vec![]
+            BasicBlock::End { .. } => HashSet::new()
         }
     }
 
-    pub fn get_predecessors(&self) -> Vec<BlockID> {
+    // TODO! make this not clone every time
+    pub fn get_predecessors(&self) -> HashSet<BlockID> {
         match self {
             BasicBlock::End { predecessors } => predecessors.clone(),
-            BasicBlock::Start { .. } => vec![],
+            BasicBlock::Start { .. } => HashSet::new(),
             BasicBlock::Generic(b) => b.predecessors.clone(),
         }
     }
 
-    pub fn set_predacessors(&mut self, preds: Vec<BlockID>) {
+    pub fn set_predecessors(&mut self, preds: HashSet<BlockID>) {
         match self {
             BasicBlock::Generic(GenericBlock { predecessors, .. }) |
             BasicBlock::End { predecessors } => *predecessors = preds,
@@ -126,7 +147,7 @@ pub struct GenericBlock {
     pub id: GenericBlockID,
     pub instructions: Vec<BInstruction>,
     pub terminator: BTerminator,
-    pub predecessors: Vec<BlockID>,
+    pub predecessors: HashSet<BlockID>,
 }
 
 #[derive(Debug, Clone, Copy, Hash, PartialEq, Eq)]
@@ -237,12 +258,23 @@ pub enum Terminator {
 }
 
 impl Terminator {
-    pub fn get_successors(&self) -> Vec<BlockID> {
+    pub fn get_successors(&self) -> (BlockID, Option<BlockID>) {
         match self {
-            Terminator::Return(_) => vec![BlockID::End],
-            Terminator::Jump { target } => vec![BlockID::Generic(*target)],
-            Terminator::JumpCond { target, fail, .. } => vec![BlockID::Generic(*target), BlockID::Generic(*fail)],
+            Terminator::Return(_) => (BlockID::End, None),
+            Terminator::Jump { target } => (BlockID::Generic(*target), None),
+            Terminator::JumpCond { target, fail, .. } => (BlockID::Generic(*target), Some(BlockID::Generic(*fail))),
         }
+    }
+
+    pub fn get_successors_as_vec(&self) -> Vec<BlockID> {
+        let s = self.get_successors();
+
+        let mut v = Vec::with_capacity(if s.1.is_some() { 2 } else { 1 });
+
+        v.push(s.0);
+        if let Some(s) = s.1 { v.push(s); }
+
+        v
     }
 }
 

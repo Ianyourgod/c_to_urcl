@@ -38,8 +38,8 @@ impl Display for mir_def::CFG {
         let start = self.blocks.get(&mir_def::BlockID::Start).unwrap().get_successors();
 
         if start.len() > 0 {
-            let mut start = start;
-            let start = start.pop().unwrap();
+            let start = start;
+            let start = start.into_iter().next().unwrap();
 
             f.write_str("\n\tJMP ")?;
             f.write_str(&format!("{:?}\n", start))?;

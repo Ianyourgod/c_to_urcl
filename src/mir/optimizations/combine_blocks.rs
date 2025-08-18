@@ -15,9 +15,9 @@ pub fn combine_cfg(cfg: mir_def::CFG) -> mir_def::CFG {
     let mut blocks_iter = blocks.iter();
 
     while let Some(block) = blocks_iter.next() {
-        let mut suc = block.1.get_successors();
+        let suc = block.1.get_successors();
         if suc.len() == 1 {
-            let suc = suc.pop().unwrap();
+            let suc = suc.into_iter().next().unwrap();
 
             let s = blocks.get(&suc).unwrap();
 

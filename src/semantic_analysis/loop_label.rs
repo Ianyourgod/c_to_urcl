@@ -1,10 +1,10 @@
 use crate::ast;
 
-type Label = (u32, LabelType);
+type Label = (u64, LabelType);
 
 pub struct LoopLabeler {
     label_stack: Vec<Label>,
-    label_count: u32,
+    label_count: u64,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -47,22 +47,22 @@ impl LoopLabeler {
         });
     }
 
-    fn new_label_num(&mut self) -> u32 {
+    fn new_label_num(&mut self) -> u64 {
         self.label_count += 1;
         self.label_count
     }
 
-    fn new_label(&mut self, label_type: LabelType) -> u32 {
+    fn new_label(&mut self, label_type: LabelType) -> u64 {
         let label = self.new_label_num();
         self.label_stack.push((label, label_type));
         return label;
     }
 
-    fn new_loop_label(&mut self) -> u32 {
+    fn new_loop_label(&mut self) -> u64 {
         self.new_label(LabelType::Loop)
     }
 
-    fn new_switch_label(&mut self) -> u32 {
+    fn new_switch_label(&mut self) -> u64 {
         self.new_label(LabelType::Switch)
     }
 
@@ -127,19 +127,19 @@ impl LoopLabeler {
         }
     }
 
-    fn get_last_label(&self) -> Option<u32> {
+    fn get_last_label(&self) -> Option<u64> {
         self.label_stack.last().map(|a|a.0)
     }
 
-    fn get_last_label_ty(&self, label_type: LabelType) -> Option<u32> {
+    fn get_last_label_ty(&self, label_type: LabelType) -> Option<u64> {
         self.label_stack.iter().rev().find(|i|i.1==label_type).map(|a|a.0)
     }
 
-    fn get_last_loop_label(&self) -> Option<u32> {
+    fn get_last_loop_label(&self) -> Option<u64> {
         self.get_last_label_ty(LabelType::Loop)
     }
 
-    fn get_last_switch_label(&self) -> Option<u32> {
+    fn get_last_switch_label(&self) -> Option<u64> {
         self.get_last_label_ty(LabelType::Switch)
     }
 }

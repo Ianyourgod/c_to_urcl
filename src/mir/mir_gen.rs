@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::rc::Rc;
 
 use crate::mir::mir_def;
@@ -7,7 +7,7 @@ use crate::semantic_analysis::type_check::{IdentifierAttrs, InitialValue, Switch
 
 #[derive(Debug)]
 pub struct Generator<'s> {
-    tmp_count: u32,
+    tmp_count: u64,
     instr_id: u64,
     symbol_table: &'s mut SymbolTable,
     type_table: &'s TypeTable,
@@ -25,7 +25,7 @@ impl<'s> Generator<'s> {
         }
     }
 
-    pub fn generate(mut self, ast: ast::Program<TypedExpr>) -> mir_def::Program {
+    pub fn generate(mut self, ast: ast::Program<TypedExpr>) -> (mir_def::Program, u64, u64) {
         let mut top_level: Vec<mir_def::TopLevel> = Vec::new();
         
         for f in ast.top_level_items {
@@ -91,9 +91,9 @@ impl<'s> Generator<'s> {
             }
         }
 
-        mir_def::Program { 
+        (mir_def::Program { 
             top_level
-        }
+        }, self.instr_id, self.tmp_count)
     }
 
     fn generate_function(&mut self, function: ast::FunctionDecl<TypedExpr>) -> Option<mir_def::Function> {
@@ -121,7 +121,7 @@ enum ExprResult {
 }
 
 struct FunctionGenerator<'l> {
-    tmp_count: &'l mut u32,
+    tmp_count: &'l mut u64,
     instr_id: &'l mut u64,
     cfg: mir_def::CFG,
     current_block: mir_def::GenericBlock,
@@ -130,7 +130,7 @@ struct FunctionGenerator<'l> {
 }
 
 impl<'l> FunctionGenerator<'l> {
-    pub fn new(tmp_count: &'l mut u32, instr_id: &'l mut u64, type_table: &'l TypeTable, switch_cases: &'l mut SwitchCases) -> Self {
+    pub fn new(tmp_count: &'l mut u64, instr_id: &'l mut u64, type_table: &'l TypeTable, switch_cases: &'l mut SwitchCases) -> Self {
         let mut cfg = mir_def::CFG {
             blocks: HashMap::new()
         };
@@ -139,8 +139,9 @@ impl<'l> FunctionGenerator<'l> {
         let n = *tmp_count;
         let id = mir_def::GenericBlockID::Generic(n);
 
-        cfg.blocks.insert(mir_def::BlockID::Start, mir_def::BasicBlock::Start { successors: vec![mir_def::BlockID::Generic(id)] });
-        cfg.blocks.insert(mir_def::BlockID::End, mir_def::BasicBlock::End { predecessors: vec![] });
+        let start_successors = HashSet::from([mir_def::BlockID::Generic(id)]);
+        cfg.blocks.insert(mir_def::BlockID::Start, mir_def::BasicBlock::Start { successors: start_successors });
+        cfg.blocks.insert(mir_def::BlockID::End, mir_def::BasicBlock::End { predecessors: HashSet::new() });
 
         let term_id = *instr_id;
         *instr_id += 1;
@@ -165,7 +166,7 @@ impl<'l> FunctionGenerator<'l> {
             id,
             instructions: Vec::new(),
             terminator,
-            predecessors: vec![]
+            predecessors: HashSet::new()
         }
     }
 
@@ -541,7 +542,7 @@ impl<'l> FunctionGenerator<'l> {
         mir_def::GenericBlockID::Generic(*self.tmp_count)
     }
 
-    fn gen_loop_block_id(&mut self, loop_id: u32, is_break: bool) -> mir_def::GenericBlockID {
+    fn gen_loop_block_id(&mut self, loop_id: u64, is_break: bool) -> mir_def::GenericBlockID {
         if is_break {
             mir_def::GenericBlockID::LoopBreak(loop_id)
         } else {

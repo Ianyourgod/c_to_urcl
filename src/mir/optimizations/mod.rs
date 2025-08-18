@@ -6,49 +6,70 @@ mod unreachable_elimination;
 mod combine_blocks;
 mod copy_propagation;
 mod dead_store;
+mod inlining;
 
-pub fn optimize(mir: Program, symbol_table: &SymbolTable) -> Program {
-    let program = mir.top_level.into_iter().map(|tl|
-        match tl {
-            mir_def::TopLevel::Fn(func) => {
-                let mut cfg = func.basic_blocks;
+pub fn optimize(mir: Program, symbol_table: &SymbolTable, instr_count: &mut u64, tmp_count: &mut u64) -> Program {
+    let mut program = mir.top_level;
 
-                loop {
-                    let program_copy = cfg.clone();
+    loop {
+        let old_program = program.clone();
 
-                    cfg = constant_folding::fold_cfg(cfg, symbol_table);
+        program = program.into_iter().map(|tl|
+            match tl {
+                mir_def::TopLevel::Fn(func) => {
+                    let mut cfg = func.basic_blocks;
 
-                    cfg = unreachable_elimination::elim_cfg(cfg);
+                    loop {
+                        let program_copy = cfg.clone();
 
-                    cfg.recalculate_predecessors();
+                        cfg = constant_folding::fold_cfg(cfg, symbol_table);
 
-                    cfg = combine_blocks::combine_cfg(cfg);
+                        cfg = unreachable_elimination::elim_cfg(cfg);
 
-                    let aliased = pointer_analysis::find_aliased(&cfg, symbol_table).into_iter().cloned().collect();
+                        cfg.recalculate_predecessors();
 
-                    cfg.recalculate_predecessors();
+                        cfg = combine_blocks::combine_cfg(cfg);
 
-                    cfg = copy_propagation::propagate_cfg(cfg, symbol_table, &aliased);
+                        let aliased = pointer_analysis::find_aliased(&cfg, symbol_table).into_iter().cloned().collect();
 
-                    cfg = dead_store::dead_store_fix_cfg(cfg, symbol_table, &aliased);
+                        cfg.recalculate_predecessors();
 
-                    if cfg == program_copy {
-                        break;
+                        cfg = copy_propagation::propagate_cfg(cfg, symbol_table, &aliased);
+
+                        // just in case...
+                        cfg.recalculate_predecessors();
+                        let aliased = pointer_analysis::find_aliased(&cfg, symbol_table).into_iter().cloned().collect();
+
+                        cfg = dead_store::dead_store_fix_cfg(cfg, symbol_table, &aliased);
+
+                        // inlining needs preds
+                        cfg.recalculate_predecessors();
+
+                        if cfg == program_copy {
+                            break;
+                        }
                     }
-                }
 
-                mir_def::TopLevel::Fn(mir_def::Function {
-                    name: func.name,
-                    global: func.global,
-                    params: func.params,
-                    basic_blocks: cfg
-                })
-            },
+                    mir_def::TopLevel::Fn(mir_def::Function {
+                        name: func.name,
+                        global: func.global,
+                        params: func.params,
+                        basic_blocks: cfg
+                    })
+                },
 
-            mir_def::TopLevel::Const { .. } |
-            mir_def::TopLevel::Var(_) => tl,
+                mir_def::TopLevel::Const { .. } |
+                mir_def::TopLevel::Var(_) => tl,
+            }
+        ).collect();
+
+        program = inlining::inline(program, instr_count, tmp_count);
+
+        if program == old_program {
+            break;
         }
-    ).collect();
+    }
+    
 
     mir_def::Program {
         top_level: program

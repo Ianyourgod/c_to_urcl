@@ -125,8 +125,9 @@
     - [x] Copy propagation
     - [x] Dead store elimination
       - [ ] maybe add volitile SCS too?
+    - [x] inlining
     - [ ] basically implement all of [this stuff](https://www.cs.cornell.edu/courses/cs6120/2020fa/lesson/1/)
   - [ ] Assembly optimizations
     - [ ] Register allocation
-    - [ ] During MIR->ASM, try and find an optimal order for the blocks
+    - [x] During MIR->ASM, try and find an optimal order for the blocks
     - [ ] Basically reimplement ModPunchTree's Optimizer V2 (on Vals, not PVals)

@@ -15,42 +15,35 @@ HLT
 .main
 	PSH $2
 	MOV $2 SP
-	SUB SP SP 4
-	MOV $7 0
-	LSTR $2 -1 $7
-	.lbl.gen.2.
-	LLOD $7 $2 -1
-	SSETLE $7 $7 264
-	LSTR $2 -2 $7
-	LLOD $7 $2 -2
-	AND $7 $7 1
-	LSTR $2 -2 $7
-	LLOD $7 $2 -2
-	BRE .lbl.lbreak.2. $7 0
-	LLOD $7 $2 -1
-	LLOD $8 $2 -1
-	MLT $7 $7 $8
-	LSTR $2 -3 $7
-	LLOD $7 $2 -3
-	SETE $7 $7 529
-	LSTR $2 -4 $7
-	LLOD $7 $2 -4
-	AND $7 $7 1
-	LSTR $2 -4 $7
-	LLOD $7 $2 -4
-	BRE .lbl.gen.9. $7 0
-	LLOD $7 $2 -1
-	MOV $1 $7
+	SUB SP SP 0
+	MOV $1 24492
 	MOV SP $2
 	POP $2
 	RET
-	.lbl.gen.9.
-	LLOD $7 $2 -1
-	ADD $7 $7 1
+.expensive
+	PSH $2
+	MOV $2 SP
+	SUB SP SP 5
+	MOV $7 $3
 	LSTR $2 -1 $7
-	JMP .lbl.gen.2.
-	.lbl.lbreak.2.
-	MOV $1 0
+	LLOD $7 $2 -1
+	LLOD $8 $2 -1
+	MLT $7 $7 $8
+	LSTR $2 -2 $7
+	LLOD $7 $2 -2
+	LLOD $8 $2 -1
+	ADD $7 $7 $8
+	LSTR $2 -3 $7
+	LLOD $7 $2 -3
+	LLOD $8 $2 -3
+	MLT $7 $7 $8
+	LSTR $2 -4 $7
+	LLOD $7 $2 -4
+	LLOD $8 $2 -3
+	ADD $7 $7 $8
+	LSTR $2 -5 $7
+	LLOD $7 $2 -5
+	MOV $1 $7
 	MOV SP $2
 	POP $2
 	RET
