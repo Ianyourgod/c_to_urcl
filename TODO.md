@@ -3,9 +3,6 @@
 - [ ] Language features
   - [ ] write a preprocessor
   - [ ] make field and compound inits the same, since thats how it should be
-  - [x] enums
-  - [x] switch-case
-  - [x] increment/decrement
   - [ ] size_t
   - [ ] IRIS only
     - [ ] floats
@@ -106,8 +103,8 @@
 
 - [ ] don't use indexmap crate, just make our own
 
-- [ ] Make the calling convention better
-  - [ ] Use registers
+- [x] Make the calling convention better
+  - [x] Use registers
   - [ ] Actually implement passing around raw structs/unions
 
 - [ ] Add more per-cpu things
@@ -126,11 +123,23 @@
     - [x] Dead store elimination
       - [ ] maybe add volitile SCS too?
     - [x] inlining
+      - [ ] Improve inlining
+        - [ ] Global Budget for inlining so we don't have code size explosions
+          - [ ] Perhaps allow some recursive inlining when doing this?
+        - [ ] Get a heuristic for if further optimizations will be possible or not
+          - [ ] Inline very small functions no matter what
+        - [ ] Consider liveness impact for register alloc
     - [ ] optimize sets followed by branches
       - like `LTE a 2 -> b; BRH EQ b 0 .1 .2` -> `BRH LTE a 2 .2 .1`
     - [ ] basically implement all of [this stuff](https://www.cs.cornell.edu/courses/cs6120/2020fa/lesson/1/)
+    - [ ] Remove unused static functions
   - [ ] Assembly optimizations
     - [ ] Register allocation
+      - [x] Basic graph coloring
+        - [ ] Perhaps improve the graph coloring algorithm?
+      - [ ] Coalescing
+      - [ ] Improve spill cost metrics
     - [x] During MIR->ASM, try and find an optimal order for the blocks
       - [ ] maybe make this better
     - [ ] Basically reimplement ModPunchTree's Optimizer V2 (on Vals, not PVals)
+  - [ ] Make a generic CFG construct so we don't just basically copy-paste when constructing an asm cfg and mir cfg

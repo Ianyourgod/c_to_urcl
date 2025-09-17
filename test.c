@@ -1,13 +1,28 @@
-int sqrt(int i) {
-    for (int a=0;a<=i/2;a++) {
-        if (a*a == i) {
-            return a;
-        }
-    }
-    return -1;
-}
+struct Goon {
+    int a;
+    int b;
+    int c;
+    int d;
+};
+
+struct Sig {
+    struct Goon g1;
+    struct Goon g2;
+    struct Goon g3;
+};
 
 int main(void) {
-    int i = 0;
-    return sqrt(i);
+    struct Sig a = {
+        {
+            1, 2, 3, 4
+        },
+        {
+            2, 4, 6, 8
+        },
+        {
+            3, 6, 9, 12
+        },
+    };
+
+    return a.g3.b;
 }

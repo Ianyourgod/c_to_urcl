@@ -1,36 +1,19 @@
-sqrt(.na.gen.i.1):
-	JMP Generic(Generic(1))
-	gen.2:
-		DIV .na.gen.i.1 2 -> tmp.3.
-		LTE .na.gen.a.2 tmp.3. -> tmp.4.
-		BRH EQ lbreak.2 tmp.4. 0 ELSE gen.5
-	lbreak.2:
-		NEG 1 -> tmp.12.
-		RETURN tmp.12.
-	gen.8:
-		RETURN .na.gen.a.2
-	gen.1:
-		COPY 0 -> .na.gen.a.2
-		JMP gen.2
-	gen.5:
-		MUL .na.gen.a.2 .na.gen.a.2 -> tmp.6.
-		EQ tmp.6. .na.gen.i.1 -> tmp.7.
-		BRH EQ gen.9 tmp.7. 0 ELSE gen.8
-	gen.10:
-		JMP gen.9
-	gen.9:
-		JMP lcont2
-	lcont2:
-		COPY .na.gen.a.2 -> tmp.11.
-		ADD .na.gen.a.2 1 -> .na.gen.a.2
-		JMP gen.2
-	gen.13:
-		RETURN 0
 main():
-	JMP Generic(Generic(15))
-	gen.15:
-		COPY 0 -> .na.gen.i.3
-		sqrt(.na.gen.i.3, ) -> tmp.16.
-		RETURN tmp.16.
-	gen.17:
+	JMP Generic(Generic(1))
+	gen.3:
 		RETURN 0
+	gen.1:
+		1 -> .na.gen.a.3[0]
+		2 -> .na.gen.a.3[1]
+		3 -> .na.gen.a.3[2]
+		4 -> .na.gen.a.3[3]
+		2 -> .na.gen.a.3[4]
+		4 -> .na.gen.a.3[5]
+		6 -> .na.gen.a.3[6]
+		8 -> .na.gen.a.3[7]
+		3 -> .na.gen.a.3[8]
+		6 -> .na.gen.a.3[9]
+		9 -> .na.gen.a.3[10]
+		12 -> .na.gen.a.3[11]
+		.na.gen.a.3[9] -> tmp.2.
+		RETURN tmp.2.

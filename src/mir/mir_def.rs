@@ -48,7 +48,7 @@ pub struct Function {
     #[allow(unused)]
     pub global: bool,
     pub params: Vec<Ident>,
-    pub basic_blocks: CFG,
+    pub basic_blocks: Option<CFG>,
 }
 
 #[derive(Debug, Clone, PartialEq)]

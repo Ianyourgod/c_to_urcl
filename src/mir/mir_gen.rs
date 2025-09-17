@@ -31,9 +31,7 @@ impl<'s> Generator<'s> {
         for f in ast.top_level_items {
             let f = if let ast::Declaration::Fn(f) = f { f } else { continue; };
 
-            if let Some(f) = self.generate_function(f) {
-                top_level.push(mir_def::TopLevel::Fn(f));
-            }
+            top_level.push(mir_def::TopLevel::Fn(self.generate_function(f)));
         }
 
         // now traverse the symbol table
@@ -96,7 +94,7 @@ impl<'s> Generator<'s> {
         }, self.instr_id, self.tmp_count)
     }
 
-    fn generate_function(&mut self, function: ast::FunctionDecl<TypedExpr>) -> Option<mir_def::Function> {
+    fn generate_function(&mut self, function: ast::FunctionDecl<TypedExpr>) -> mir_def::Function {
         let mut tmp_tmp_count = self.tmp_count;
         let mut tmp_instr_id = self.instr_id;
         let fn_gen = FunctionGenerator::new(&mut tmp_tmp_count, &mut tmp_instr_id, self.type_table, &mut self.switch_cases);
@@ -170,22 +168,32 @@ impl<'l> FunctionGenerator<'l> {
         }
     }
 
-    pub fn generate(mut self, symbol_table: &mut SymbolTable, function: ast::FunctionDecl<TypedExpr>) -> Option<mir_def::Function> {
-        function.block.map(|block| {
-            self.generate_block(block, symbol_table);
-
-            self.new_block();
-
+    pub fn generate(mut self, symbol_table: &mut SymbolTable, function: ast::FunctionDecl<TypedExpr>) -> mir_def::Function {
+        let block = if let Some(b) = function.block { b } else {
             let entry = symbol_table.get(&function.name).unwrap();
             let global = if let IdentifierAttrs::Fn { global, .. } = entry.attrs { global } else { unreachable!() };
             
-            mir_def::Function {
+            return mir_def::Function {
                 name: function.name,
                 global,
                 params: function.params.into_iter().map(|(_,n)|n).collect(),
-                basic_blocks: self.cfg
-            }
-        })
+                basic_blocks: None
+            };
+        };
+        
+        self.generate_block(block, symbol_table);
+
+        self.new_block();
+
+        let entry = symbol_table.get(&function.name).unwrap();
+        let global = if let IdentifierAttrs::Fn { global, .. } = entry.attrs { global } else { unreachable!() };
+        
+        mir_def::Function {
+            name: function.name,
+            global,
+            params: function.params.into_iter().map(|(_,n)|n).collect(),
+            basic_blocks: Some(self.cfg)
+        }
     }
 
     fn generate_block(&mut self, block: ast::Block<TypedExpr>, symbol_table: &mut SymbolTable) {

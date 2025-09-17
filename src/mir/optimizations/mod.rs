@@ -17,7 +17,17 @@ pub fn optimize(mir: Program, symbol_table: &SymbolTable, instr_count: &mut u64,
         program = program.into_iter().map(|tl|
             match tl {
                 mir_def::TopLevel::Fn(func) => {
-                    let mut cfg = func.basic_blocks;
+                    let cfg = func.basic_blocks;
+
+                    let Some(mut cfg) = cfg
+                    else {
+                        return mir_def::TopLevel::Fn(mir_def::Function {
+                            name: func.name,
+                            global: func.global,
+                            params: func.params,
+                            basic_blocks: cfg
+                        });
+                    };
 
                     loop {
                         let program_copy = cfg.clone();
@@ -54,7 +64,7 @@ pub fn optimize(mir: Program, symbol_table: &SymbolTable, instr_count: &mut u64,
                         name: func.name,
                         global: func.global,
                         params: func.params,
-                        basic_blocks: cfg
+                        basic_blocks: Some(cfg)
                     })
                 },
 

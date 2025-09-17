@@ -18,7 +18,9 @@ struct FnInfo {
 
 impl FnInfo {
     pub fn set_successors(&mut self) {
-        for block in self.func.basic_blocks.blocks.values() {
+        let block = if let Some(ref b) = self.func.basic_blocks { b } else { return; };
+
+        for block in block.blocks.values() {
             if let mir_def::BasicBlock::Generic(block) = block {
                 for instr in block.instructions.iter() {
                     if let mir_def::Instruction::FunctionCall { ref name, .. } = instr.instr {
@@ -224,7 +226,7 @@ impl<'l> Inliner<'l> {
     fn run_inlining(&mut self, fn_name: &mir_def::Ident) {
         loop {
             let func = self.fn_graph.fns.get(fn_name).unwrap();
-            let call = self.get_first_call(&func.func.basic_blocks);
+            let call = func.func.basic_blocks.as_ref().map(|b|self.get_first_call(&b)).flatten();
 
             if let Some((block_id, instr_id)) = call {
                 let block_id = block_id.clone();
@@ -232,7 +234,7 @@ impl<'l> Inliner<'l> {
                 let next_block_id = self.gen_block_id();
                 let func = self.fn_graph.fns.get_mut(fn_name).unwrap();
 
-                let block = func.func.basic_blocks.blocks.get_mut(&block_id).unwrap();
+                let block = func.func.basic_blocks.as_mut().unwrap().blocks.get_mut(&block_id).unwrap();
                 let block = match block {
                     mir_def::BasicBlock::Generic(b) => b,
                     _ => unreachable!()
@@ -259,7 +261,7 @@ impl<'l> Inliner<'l> {
                     predecessors: HashSet::new()
                 };
 
-                func.func.basic_blocks.blocks.insert(
+                func.func.basic_blocks.as_mut().unwrap().blocks.insert(
                     mir_def::BlockID::Generic(next_block_id), 
                     mir_def::BasicBlock::Generic(next_block)
                 );
@@ -274,10 +276,10 @@ impl<'l> Inliner<'l> {
                 // haha funny paste the same line haha funny
                 let func = self.fn_graph.fns.get_mut(fn_name).unwrap();
                 for (id, block) in adding {
-                    func.func.basic_blocks.blocks.insert(id, block);
+                    func.func.basic_blocks.as_mut().unwrap().blocks.insert(id, block);
                 }
 
-                let block = func.func.basic_blocks.blocks.get_mut(&block_id).unwrap();
+                let block = func.func.basic_blocks.as_mut().unwrap().blocks.get_mut(&block_id).unwrap();
                 let block = match block {
                     mir_def::BasicBlock::Generic(b) => b,
                     _ => unreachable!()
@@ -333,7 +335,7 @@ impl<'l> Inliner<'l> {
         let func = &self.fn_graph.fns.get(fn_name).unwrap().func;
         let cfg = func.basic_blocks.clone();
 
-        let label_map = cfg.blocks.keys().map(|id|(id.clone(), {
+        let label_map = cfg.as_ref().unwrap().blocks.keys().map(|id|(id.clone(), {
             if matches!(id, mir_def::BlockID::Start | mir_def::BlockID::End) {
                 id.clone()
             } else {
@@ -344,7 +346,7 @@ impl<'l> Inliner<'l> {
         // haha get fucked borrow checker
         let func = &self.fn_graph.fns.get(fn_name).unwrap().func;
 
-        let cfg = cfg.blocks.into_iter().map(|(old_id, mut block)| {
+        let cfg = cfg.unwrap().blocks.into_iter().map(|(old_id, mut block)| {
             let new_id = label_map.get(&old_id).unwrap();
 
             match &mut block {
@@ -489,7 +491,7 @@ impl<'l> Inliner<'l> {
 
         // TODO! check if it has inline specifier, and if so increase the instruction limit
 
-        let instr_count = func.func.basic_blocks.get_total_instructions();
+        let instr_count = func.func.basic_blocks.as_ref().map(|f|f.get_total_instructions()).unwrap_or(BASE_INSTRUCTION_LIMIT+1);
 
         return instr_count <= BASE_INSTRUCTION_LIMIT;
     }

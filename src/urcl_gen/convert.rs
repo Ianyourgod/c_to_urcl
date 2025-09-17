@@ -1,10 +1,18 @@
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::rc::Rc;
 
-use crate::urcl_gen::{asm, cpu_definitions::CPUDefinition};
+use crate::urcl_gen::{optimizations::register_allocation, asm, cpu_definitions::CPUDefinition};
 use crate::mir::mir_def;
 use crate::semantic_analysis::type_check::{IdentifierAttrs, SymbolTable, SymbolTableEntry, TypeTable};
 use crate::Ident;
+
+pub type ConvInfo = HashMap<Ident, PerFNConvInfo>;
+
+#[derive(Debug, Clone)]
+pub struct PerFNConvInfo {
+    pub params: Vec<asm::Reg>,
+    pub ret_vessel: register_allocation::cfg::Reg,
+}
 
 pub struct ASMGenerator<'a, CPU> 
 where
@@ -28,10 +36,12 @@ impl<'a, T: CPUDefinition> ASMGenerator<'a, T> {
         }
     }
 
-    pub fn mir_to_asm(mut self, mir: mir_def::Program) -> asm::Program<'a, asm::PVal, T> {
-        asm::Program {
+    pub fn mir_to_asm(mut self, mir: mir_def::Program) -> (asm::Program<'a, asm::PVal, T>, ConvInfo) {
+        let mut conv_info = ConvInfo::new();
+
+        let p = asm::Program {
             cpu: self.cpu,
-            top_level_items: mir.top_level.into_iter().map(|tl| {
+            top_level_items: mir.top_level.into_iter().filter_map(|tl| {
                 match tl {
                     mir_def::TopLevel::Fn(func) => {
                         let mut instructions = Vec::new();
@@ -46,11 +56,21 @@ impl<'a, T: CPUDefinition> ASMGenerator<'a, T> {
                             ret_ty.size(self.type_table) > 1
                         } else { false };
 
+                        let mut param_regs = self.cpu.get_param_regs().into_iter();
+
+                        assert_ne!(param_regs.len(), 0);
+
+                        let mut used_param_regs = Vec::new();
+
                         self.current_return_var = if return_in_mem {
                             let var = self.make_tmp_var(ret_ty);
 
+                            let reg = param_regs.next().unwrap();
+
+                            used_param_regs.push(reg);
+
                             instructions.push(asm::Instr::Mov {
-                                src: asm::Reg::pval(3),
+                                src: asm::PVal::Reg(reg),
                                 dst: asm::PVal::Var(var.clone())
                             });
 
@@ -59,43 +79,56 @@ impl<'a, T: CPUDefinition> ASMGenerator<'a, T> {
                             None
                         };
 
-                        let mut reg_arg_count = if return_in_mem { 1 } else { 0 };
                         let mut stack_offset = 0;
                         while let Some(param) = params.peek() {
                             let ty = self.get_ty_from_var(param);
                             let size = ty.size(self.type_table);
 
-                            if reg_arg_count + size <= 4 {
+                            if (param_regs.len() as isize - size as isize) < 0 {
+                                break;
+                            }
+
+                            if let Some(reg) = param_regs.next() {
                                 let param = params.next().unwrap();
 
-                                let reg = (reg_arg_count + 3) as u8;
-
                                 if size == 1 {
+                                    used_param_regs.push(reg);
                                     instructions.push(asm::Instr::Mov {
-                                        src: asm::Reg::pval(reg),
+                                        src: asm::PVal::Reg(reg),
                                         dst: asm::PVal::Var(param)
                                     });
                                 } else {
+
                                     let tmp_out = self.make_tmp_var(mir_def::Type::Pointer(Box::new(self.get_ty_from_var(&param))));
                                     let tmp_out = asm::PVal::Var(tmp_out);
 
                                     instructions.push(asm::Instr::Lea { src: asm::PVal::Var(param.clone()), dst: tmp_out.clone() });
+                                    let mut reg = reg;
                                     for i in 0..size {
-                                        let reg = i as u8 + reg;
-                                        
+                                        used_param_regs.push(reg);
                                         instructions.push(asm::Instr::LStr {
-                                            src: asm::Reg::pval(reg),
+                                            src: asm::PVal::Reg(reg),
                                             dst: tmp_out.clone(),
                                             offset: asm::PVal::Imm(i as i32)
                                         });
+                                        reg = param_regs.next().unwrap();
                                     }
                                 }
-
-                                reg_arg_count += size;
                             } else {
                                 break;
                             }
                         }
+
+                        let ret_vessel = if let Some(ref p) = self.current_return_var {
+                            register_allocation::cfg::Reg::P(p.clone())
+                        } else {
+                            register_allocation::cfg::Reg::R(self.cpu.get_ret_reg())
+                        };
+
+                        conv_info.insert(func.name.clone(), PerFNConvInfo {
+                            params: used_param_regs,
+                            ret_vessel
+                        });
 
                         for param in params.rev() {
                             let ty = self.get_ty_from_var(&param);
@@ -128,26 +161,32 @@ impl<'a, T: CPUDefinition> ASMGenerator<'a, T> {
                             stack_offset += size;
                         }
 
-                        self.cfg_to_asm(func.basic_blocks, &mut instructions);
+                        let block = if let Some(b) = func.basic_blocks { b } else {
+                            return None;
+                        };
+
+                        self.cfg_to_asm(block, &mut instructions);
                         
-                        asm::TopLevel::Fn(asm::Function {
+                        Some(asm::TopLevel::Fn(asm::Function {
                             name: func.name,
                             instructions
-                        })
+                        }))
                     },
                     mir_def::TopLevel::Var(static_var) => {
-                        asm::TopLevel::StaticVar {
+                        Some(asm::TopLevel::StaticVar {
                             name: static_var.name,
                             global: static_var.global,
                             init: static_var.init
-                        }
+                        })
                     },
                     mir_def::TopLevel::Const { name, ty: _ty, init } => {
-                        asm::TopLevel::StaticConst { name, init }
+                        Some(asm::TopLevel::StaticConst { name, init })
                     }
                 }
             }).collect()
-        }
+        };
+
+        (p, conv_info)
     }
 
     fn cfg_to_asm(&mut self, cfg: mir_def::CFG, instructions: &mut Vec<asm::Instr<asm::PVal>>) {
@@ -213,11 +252,6 @@ impl<'a, T: CPUDefinition> ASMGenerator<'a, T> {
         }
     }
 
-    // TODO! change all the calls of this to just use .get_type
-    fn get_ty_from_val(&self, val: &mir_def::Val) -> mir_def::Type {
-        val.get_type(&self.symbol_table)
-    }
-
     #[inline]
     fn get_ty_from_var(&self, var: &Ident) -> mir_def::Type {
         self.symbol_table.get(var).unwrap().ty.clone()
@@ -236,7 +270,7 @@ impl<'a, T: CPUDefinition> ASMGenerator<'a, T> {
     }
 
     fn push_val(&self, val: mir_def::Val, instructions: &mut Vec<asm::Instr<asm::PVal>>) {
-        let ty = self.get_ty_from_val(&val);
+        let ty = val.get_type(&self.symbol_table);
         let size = ty.size(self.type_table);
 
         if size == 1 {
@@ -248,14 +282,18 @@ impl<'a, T: CPUDefinition> ASMGenerator<'a, T> {
                 mir_def::Val::Var(v) => v
             };
 
-            instructions.push(asm::Instr::Lea { src: asm::PVal::Var(v.clone()), dst: asm::Reg::pval(8) });
+            let tmp_regs = self.cpu.get_temp_regs();
+            let tmp_reg_1 = tmp_regs.0;
+            let tmp_reg_2 = tmp_regs.1;
+
+            instructions.push(asm::Instr::Lea { src: asm::PVal::Var(v.clone()), dst: asm::PVal::Reg(tmp_reg_2) });
             for byte in (0..size).map(|i|size-i-1) {
                 instructions.push(asm::Instr::LLod {
-                    src: asm::Reg::pval(8),
+                    src: asm::PVal::Reg(tmp_reg_2),
                     offset: asm::PVal::Imm(byte as i32),
-                    dst: asm::Reg::pval(7),
+                    dst: asm::PVal::Reg(tmp_reg_1),
                 });
-                instructions.push(asm::Instr::Push(asm::Reg::pval(7)));
+                instructions.push(asm::Instr::Push(asm::PVal::Reg(tmp_reg_1)));
             }
         }
     }
@@ -263,7 +301,7 @@ impl<'a, T: CPUDefinition> ASMGenerator<'a, T> {
     fn instr_to_asm(&mut self, instr: mir_def::Instruction, instructions: &mut Vec<asm::Instr<asm::PVal>>) {
         match instr {
             mir_def::Instruction::Binary { op, src1, src2, dst } => {
-                let ty = self.get_ty_from_val(&src1);
+                let ty = src1.get_type(&self.symbol_table);
                 let (binop, needs_bit_select) = self.mir_binop_to_asm(op, &ty);
 
                 let src1 = self.val_to_asm(src1, instructions);
@@ -288,7 +326,7 @@ impl<'a, T: CPUDefinition> ASMGenerator<'a, T> {
                 instructions.push(asm::Instr::Unary { unop, src, dst: asm::PVal::Var(dst) });
             },
             mir_def::Instruction::Copy { src, dst } => {
-                if let mir_def::Type::Struct(name) | mir_def::Type::Union(name) = self.get_ty_from_val(&src) {
+                if let mir_def::Type::Struct(name) | mir_def::Type::Union(name) = src.get_type(&self.symbol_table) {
                     let entry = self.type_table.entries.get(&name).unwrap();
 
                     let tmp_src_ptr = self.make_tmp_var(mir_def::Type::Pointer(Box::new(mir_def::Type::Char)));
@@ -337,46 +375,43 @@ impl<'a, T: CPUDefinition> ASMGenerator<'a, T> {
                 }
             }
             mir_def::Instruction::FunctionCall { name, args, dst } => {
-                // TODO! allow the arch to specify what registers are used for this
                 let mut args = args.into_iter();
 
                 let dst_size = if let Some(ref dst) = dst { self.get_ty_from_var(&dst).size(self.type_table) } else { 0 };
                 let return_in_mem = dst_size > 1;
 
-                let reg_count = 4;
+                let mut regs = self.cpu.get_param_regs().into_iter();
 
                 if return_in_mem && let Some(ref dst) = dst {
                     instructions.push(asm::Instr::Lea {
                         src: asm::PVal::Var(dst.clone()),
-                        dst: asm::Reg::pval(3)
+                        dst: asm::PVal::Reg(regs.next().unwrap())
                     });
                 }
 
                 // use registers
                 let mut reg_arg_count = if return_in_mem { 1 } else { 0 };
                 while let Some(arg) = args.next() {
-                    if reg_arg_count >= reg_count {
+                    let next_reg = if let Some(r) = regs.next() { r } else {
                         self.push_val(arg, instructions);
                         break;
-                    }
+                    };
 
-                    let ty = self.get_ty_from_val(&arg);
+                    let ty = arg.get_type(&self.symbol_table);
                     let size = ty.size(self.type_table);
-
-                    let reg = reg_arg_count + 3;
 
                     if size == 1 {
                         let arg = self.val_to_asm(arg, instructions);
                         instructions.push(asm::Instr::Mov {
                             src: arg,
-                            dst: asm::Reg::pval(reg as u8)
+                            dst: asm::PVal::Reg(next_reg)
                         });
 
                         reg_arg_count += 1;
                     } else {
                         let size = ty.size(self.type_table);
 
-                        if reg_arg_count + size > reg_count {
+                        if reg_arg_count + size > regs.len() as u16 {
                             self.push_val(arg, instructions);
                             break;
                         }
@@ -393,14 +428,14 @@ impl<'a, T: CPUDefinition> ASMGenerator<'a, T> {
                             dst: asm::PVal::Var(tmp_ptr.clone())
                         });
 
+                        let mut reg = next_reg;
                         for byte in 0..size {
-                            let reg = (reg + byte) as u8;
-
                             instructions.push(asm::Instr::LLod {
                                 src: asm::PVal::Var(tmp_ptr.clone()),
                                 offset: asm::PVal::Imm(byte as i32),
-                                dst: asm::Reg::pval(reg),
+                                dst: asm::PVal::Reg(reg),
                             });
+                            reg = regs.next().unwrap();
                         }
 
                         reg_arg_count += size;
@@ -414,7 +449,7 @@ impl<'a, T: CPUDefinition> ASMGenerator<'a, T> {
                 instructions.push(asm::Instr::Call(name));
 
                 if !return_in_mem {
-                    dst.map(|dst|instructions.push(asm::Instr::Mov { src: asm::Reg::pval(1), dst: asm::PVal::Var(dst) }));
+                    dst.map(|dst|instructions.push(asm::Instr::Mov { src: asm::PVal::Reg(self.cpu.get_ret_reg()), dst: asm::PVal::Var(dst) }));
                 }
             },
             mir_def::Instruction::Load { src_ptr, dst } => {
@@ -447,7 +482,7 @@ impl<'a, T: CPUDefinition> ASMGenerator<'a, T> {
                 })
             },
             mir_def::Instruction::Store { src, dst_ptr } => {
-                if let mir_def::Type::Struct(name) | mir_def::Type::Union(name) = self.get_ty_from_val(&src) {
+                if let mir_def::Type::Struct(name) | mir_def::Type::Union(name) = src.get_type(&self.symbol_table) {
                     let entry = self.type_table.entries.get(&name).unwrap();
 
                     let tmp_src_ptr = self.make_tmp_var(mir_def::Type::Pointer(Box::new(mir_def::Type::Char)));
@@ -498,7 +533,7 @@ impl<'a, T: CPUDefinition> ASMGenerator<'a, T> {
                 });
             },
             mir_def::Instruction::CopyToOffset { src, offset, dst } => {
-                if let mir_def::Type::Struct(name) | mir_def::Type::Union(name) = self.get_ty_from_val(&src) {
+                if let mir_def::Type::Struct(name) | mir_def::Type::Union(name) = src.get_type(&self.symbol_table) {
                     let entry = self.type_table.entries.get(&name).unwrap();
 
                     let tmp_src_ptr = self.make_tmp_var(mir_def::Type::Pointer(Box::new(mir_def::Type::Char)));
@@ -564,18 +599,21 @@ impl<'a, T: CPUDefinition> ASMGenerator<'a, T> {
                     return;
                 }
 
-                // TODO! don't use R8 since SRC1, SRC2 yk, but also don't be inefficient
+                let tmp_regs = self.cpu.get_temp_regs();
+                let tmp_reg_2 = tmp_regs.1;
+
+                // TODO! don't use tmp_reg_2 since maybe some future pass might mess it up since those are temp regs, but also don't be inefficient
                 instructions.push(asm::Instr::Lea {
                     src: asm::PVal::Var(src),
-                    dst: asm::Reg::pval(8)
+                    dst: asm::PVal::Reg(tmp_reg_2)
                 });
                 instructions.push(asm::Instr::LLod {
-                    src: asm::Reg::pval(8),
+                    src: asm::PVal::Reg(tmp_reg_2),
                     offset: asm::PVal::Imm(offset as i32),
-                    dst: asm::Reg::pval(8),
+                    dst: asm::PVal::Reg(tmp_reg_2),
                 });
                 instructions.push(asm::Instr::Mov {
-                    src: asm::Reg::pval(8),
+                    src: asm::PVal::Reg(tmp_reg_2),
                     dst: asm::PVal::Var(dst)
                 });
             }
@@ -604,7 +642,7 @@ impl<'a, T: CPUDefinition> ASMGenerator<'a, T> {
 
                         self.copy_bytes(tmp_src_ptr, current_return_var, size, instructions);
                     } else {
-                        instructions.push(asm::Instr::Mov { src: val, dst: asm::Reg::pval(1) });
+                        instructions.push(asm::Instr::Mov { src: val, dst: asm::PVal::Reg(self.cpu.get_ret_reg()) });
                     }
                 });
                 instructions.push(asm::Instr::Ret);

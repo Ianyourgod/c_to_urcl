@@ -1,7 +1,7 @@
 #![allow(unused)]
 
 use std::fmt::Display;
-use crate::Ident;
+pub use crate::Ident;
 
 pub use crate::mir::mir_def::{GenericBlockID, StaticInit};
 use crate::urcl_gen::cpu_definitions::{HeaderInfo, CPUDefinition};
@@ -346,7 +346,7 @@ impl Display for Val {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum Reg {
     Normal(u8),
     SP,
@@ -381,13 +381,13 @@ impl Reg {
     pub fn sp_val() -> Val { Val::Reg(Self::sp()) }
     pub fn sp_pval() -> PVal { PVal::Reg(Self::sp()) }
 
-    pub fn bp<T:CPUDefinition>(cpu:&T) -> Self { Self::Normal(cpu.get_base_ptr()) }
+    pub fn bp<T:CPUDefinition>(cpu:&T) -> Self { cpu.get_base_ptr() }
 
     pub fn bp_val<T:CPUDefinition>(cpu:&T) -> Val { Val::Reg(Self::bp(cpu)) }
     pub fn bp_pval<T:CPUDefinition>(cpu:&T) -> PVal { PVal::Reg(Self::bp(cpu)) }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub enum PVal {
     Imm(i32), // this is i32 so that we can have i16 and u16 fine in here
     Reg(Reg),

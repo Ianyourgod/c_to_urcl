@@ -29,7 +29,7 @@ impl Display for mir_def::Function {
             f.write_str(&param)?;
         }
         f.write_str("):")?;
-        self.basic_blocks.fmt(f)
+        self.basic_blocks.as_ref().map(|b|b.fmt(f)).unwrap_or(Ok(()))
     }
 }
 
