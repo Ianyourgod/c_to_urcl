@@ -560,7 +560,6 @@ impl Const {
     pub fn from_type(n: i32, ty: &Type) -> Self {
         match ty {
             Type::Fn { .. } |
-            Type::Pointer(_) |
             Type::Void |
             Type::Array(_, _) |
             Type::Struct(_) |
@@ -570,7 +569,8 @@ impl Const {
             Type::Int => Self::Int(n as i16),
             Type::Char => Self::Char(n as i16),
             Type::UInt => Self::UInt(n as u16),
-            Type::UChar => Self::UChar(n as u16)
+            Type::UChar => Self::UChar(n as u16),
+            Type::Pointer(_) => Self::UInt(n as u16),
         }
     }
 

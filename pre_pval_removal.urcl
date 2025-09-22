@@ -14,32 +14,5 @@ OUT %NUMB $2
 HLT
 .main
 	.lbl.gen.1.
-	__LEA $20 .na.gen.a.3
-	LSTR $20 0 1
-	__LEA $20 .na.gen.a.3
-	LSTR $20 1 2
-	__LEA $20 .na.gen.a.3
-	LSTR $20 2 3
-	__LEA $20 .na.gen.a.3
-	LSTR $20 3 4
-	__LEA $20 .na.gen.a.3
-	LSTR $20 4 2
-	__LEA $20 .na.gen.a.3
-	LSTR $20 5 4
-	__LEA $20 .na.gen.a.3
-	LSTR $20 6 6
-	__LEA $20 .na.gen.a.3
-	LSTR $20 7 8
-	__LEA $20 .na.gen.a.3
-	LSTR $20 8 3
-	__LEA $20 .na.gen.a.3
-	LSTR $20 9 6
-	__LEA $20 .na.gen.a.3
-	LSTR $20 10 9
-	__LEA $20 .na.gen.a.3
-	LSTR $20 11 12
-	__LEA $8 .na.gen.a.3
-	LLOD $8 $8 9
-	MOV $20 $8
-	MOV $1 $20
+	MOV $1 0
 	RET

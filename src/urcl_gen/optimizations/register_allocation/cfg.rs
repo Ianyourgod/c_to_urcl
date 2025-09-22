@@ -175,7 +175,6 @@ impl<'a, CPU: CPUDefinition> CFG<'a, CPU> {
                 BlockID::Start => unreachable!(),
 
                 BlockID::Generic(_) => {
-                    println!("{:?}", successor);
                     let succ_live_regs = self.get_block_annotation(&successor).unwrap();
                     live_regs.extend(succ_live_regs.iter().cloned());
                 }

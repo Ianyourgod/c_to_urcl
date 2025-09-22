@@ -548,8 +548,17 @@ impl TypeChecker {
 
                 static_inits
             },
-            (ast::Initializer::Compound(inits), ast::Type::Array(_, _)) => {
-                self.compound_init_to_static_inits_rec(inits, ty)
+            (ast::Initializer::Compound(inits), ast::Type::Array(inner_ty, len)) => {
+                let len = *len as usize;
+                    
+                if inits.len() > len {
+                    panic!("Too many inits");
+                }
+
+                let needed_zeros = len - inits.len();
+
+                let inits = self.compound_init_to_static_inits_rec(inits, &inner_ty);
+                inits.into_iter().chain(std::iter::repeat(StaticInit::ZeroInit).take(needed_zeros)).collect()
             },
             (ast::Initializer::Single(Expr(DefaultExpr::String(s))), ast::Type::Pointer(inner_ty)) => {
                 if !inner_ty.is_char_ty() {
